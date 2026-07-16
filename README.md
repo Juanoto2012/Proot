@@ -83,7 +83,7 @@ The script will:
 2. Add X11 and TUR repositories
 3. Install your chosen desktop environment (XFCE4/LXQt/MATE/KDE)
 4. Set up GPU acceleration (Turnip for Adreno, Zink fallback for others)
-5. Install Firefox, Git, Python, and core tools
+5. Install Helium Browser, Git, Python, and core tools
 6. Set up a Proot Linux container (Ubuntu/Debian/Kali)
 7. Create the App Bridge for automatic menu syncing
 8. Apply a modern dark theme

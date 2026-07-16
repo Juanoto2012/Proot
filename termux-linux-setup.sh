@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #######################################################
-#  Termux Linux Setup Script
+#  P-noroot Linux Setup Script
 #
 #  Features:
 #  - XFCE4 / LXQt / MATE / KDE Desktop
@@ -10,6 +10,8 @@
 #  - Proot Linux container (Ubuntu/Debian/Kali)
 #  - Proot App Bridge (apt installs appear in XFCE menu)
 #  - Python & Web Dev environment
+#  - SD card storage support
+#  - Ultra-lightweight — Helium browser, no bloat
 #######################################################
 
 # ============== CONFIGURATION ==============
@@ -88,8 +90,8 @@ show_banner() {
     cat << 'BANNER'
     ╔══════════════════════════════════════════╗
     ║                                          ║
-    ║       Termux Linux Setup Script          ║
-    ║       X11 + Proot + Modern XFCE          ║
+    ║         P-noroot Linux Setup             ║
+    ║      X11 + Proot + Lightweight           ║
     ║                                          ║
     ╚══════════════════════════════════════════╝
 BANNER
@@ -119,6 +121,49 @@ setup_environment() {
         GPU_DRIVER="zink_native"
         echo -e "  [*] GPU    : ${WHITE}Non-Adreno — Zink/LLVMpipe fallback${NC}"
         echo -e "${YELLOW}      [!] Recommend XFCE or LXQt for best performance.${NC}"
+    fi
+    echo ""
+
+    # ── SD Card storage selection ──
+    echo -e "${CYAN}============================================================${NC}"
+    echo -e "${WHITE}  STORAGE: Choose where your Linux data lives${NC}"
+    echo -e "${CYAN}============================================================${NC}"
+    echo ""
+    
+    # Detect available SD cards by probing /storage/
+    SD_CARDS=()
+    if [ -d /storage ]; then
+        for dir in /storage/*; do
+            if [ -d "$dir" ] && [ "$(basename "$dir")" != "emulated" ] && [ "$(basename "$dir")" != "self" ]; then
+                SD_CARDS+=("$dir")
+            fi
+        done
+    fi
+    
+    STORAGE_DIR="$HOME"
+    if [ ${#SD_CARDS[@]} -gt 0 ]; then
+        echo -e "  ${WHITE}SD Card(s) detected:${NC}"
+        for i in "${!SD_CARDS[@]}"; do
+            CARD_ID=$(basename "${SD_CARDS[$i]}")
+            CARD_SIZE=$(df -h "${SD_CARDS[$i]}" 2>/dev/null | tail -1 | awk '{print $2}')
+            echo -e "    ${GREEN}$((i+1)))${NC} ${WHITE}${CARD_ID}${NC} ${GRAY}(${CARD_SIZE} available)${NC}"
+        done
+        echo -e "    ${GREEN}$(( ${#SD_CARDS[@]} + 1 )))${NC} ${WHITE}Internal Storage${NC} ${GRAY}(default)${NC}"
+        echo ""
+        read -p "  Select storage [default: $(( ${#SD_CARDS[@]} + 1 ))]: " SD_CHOICE
+        SD_CHOICE=${SD_CHOICE:-$(( ${#SD_CARDS[@]} + 1 ))}
+        
+        if [ "$SD_CHOICE" -ge 1 ] 2>/dev/null && [ "$SD_CHOICE" -le ${#SD_CARDS[@]} ]; then
+            SD_SELECTED="${SD_CARDS[$((SD_CHOICE-1))]}"
+            STORAGE_DIR="${SD_SELECTED}/Android/data/com.termux/files"
+            mkdir -p "$STORAGE_DIR" 2>/dev/null
+            echo -e "  ${GREEN}[+] Using SD card: $(basename "$SD_SELECTED")${NC}"
+            echo -e "  ${GRAY}    Path: ${STORAGE_DIR}${NC}"
+        else
+            echo -e "  ${GREEN}[+] Using Internal Storage${NC}"
+        fi
+    else
+        echo -e "  ${GRAY}[*] No external SD card detected — using internal storage${NC}"
     fi
     echo ""
 
@@ -241,7 +286,16 @@ step_apps() {
     update_progress
     echo -e "${PURPLE}[Step ${CURRENT_STEP}/${TOTAL_STEPS}] Installing Apps...${NC}"
     echo ""
-    install_pkg "firefox" "Firefox Browser"
+    install_pkg "helium" "Helium Browser" || {
+        echo -e "  ${YELLOW}[!] Helium not in repos — installing from source...${NC}"
+        # Fallback: download Helium browser from Input-Output GitHub releases
+        (wget -q --timeout=60 -O /tmp/helium.deb \
+            "https://github.com/input-output-hk/helium-browser/releases/latest/download/helium_arm64.deb" \
+            > /dev/null 2>&1 && \
+         DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/helium.deb > /dev/null 2>&1 && \
+         rm -f /tmp/helium.deb) &
+        spinner $! "Installing Helium Browser (fallback)..."
+    }
     install_pkg "git" "Git"
     install_pkg "wget" "Wget"
     install_pkg "curl" "cURL"
@@ -250,7 +304,6 @@ step_apps() {
     install_pkg "openssh" "OpenSSH"
     install_pkg "neofetch" "Neofetch"
     install_pkg "htop" "htop"
-    install_pkg "code-oss" "VS Code (from TUR)"
 }
 
 # ============== STEP 8: PYTHON ==============
@@ -352,6 +405,9 @@ step_proot() {
 PROOT_DISTRO="$PROOT_DISTRO"
 PROOT_LABEL="$PROOT_LABEL"
 TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+# TMPDIR fallback for older Android
+[ -d "\$TERMUX_TMP" ] || TERMUX_TMP="/data/data/com.termux/files/usr/tmp"
+[ -d "\$TERMUX_TMP" ] || { TERMUX_TMP="/tmp"; mkdir -p "\$TERMUX_TMP" 2>/dev/null; }
 
 echo ""
 echo "============================================="
@@ -394,14 +450,16 @@ PROOTEOF
     chmod +x ~/start-proot.sh
     echo -e "  [+] Created ~/start-proot.sh"
 
-    # ---- proot-menu-sync.sh (v3 — embedded) ----
+    # ---- proot-menu-sync.sh (v4 — P-noroot, older Android compat) ----
     cat > ~/proot-menu-sync.sh << 'SYNCEOF'
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================
-#  Proot App Menu Bridge v3
+#  P-noroot App Menu Bridge v4
 #  Syncs proot .desktop files into native XFCE menu.
-#  Fixes: $TMPDIR log path, runtime X11 bind, dbus-run-session,
-#         Blender libvulkan auto-detect, LibreOffice --norestore
+#  Compatible with older Android (API 21+) and bash 3.2+
+#  Fixes: $TMPDIR multi-fallback, runtime X11 bind,
+#         dbus-run-session, Blender libvulkan auto-detect,
+#         LibreOffice --norestore, pgrep guard
 # ============================================================
 
 PROOT_DISTRO="${1:-ubuntu}"
@@ -410,7 +468,19 @@ PROOT_ROOTFS="/data/data/com.termux/files/usr/var/lib/proot-distro/installed-roo
 PROOT_APPS="$PROOT_ROOTFS/usr/share/applications"
 BRIDGE_DIR="$HOME/.local/share/applications/proot-bridge"
 WRAPPER_DIR="$HOME/.local/share/proot-wrappers"
-TERMUX_TMP="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+
+# Cascading TMPDIR for older Android compatibility
+# $TMPDIR may be unset on older Termux/Android — try all known locations
+if [ -n "${TMPDIR:-}" ] && [ -d "$TMPDIR" ] && [ -w "$TMPDIR" ]; then
+    TERMUX_TMP="$TMPDIR"
+elif [ -d "/data/data/com.termux/files/usr/tmp" ] && [ -w "/data/data/com.termux/files/usr/tmp" ]; then
+    TERMUX_TMP="/data/data/com.termux/files/usr/tmp"
+elif [ -d "/data/data/com.termux/files/home/.tmp" ]; then
+    TERMUX_TMP="/data/data/com.termux/files/home/.tmp"
+else
+    TERMUX_TMP="/tmp"
+    mkdir -p "$TERMUX_TMP" 2>/dev/null || TERMUX_TMP="$HOME"
+fi
 
 if [ ! -f "$PROOT_BIN" ]; then
     echo "[!] proot-distro not found. pkg install proot-distro"
@@ -485,7 +555,15 @@ for desktop_file in "$PROOT_APPS"/*.desktop; do
 #!/data/data/com.termux/files/usr/bin/bash
 PROOT_BIN="$PROOT_BIN"
 PROOT_DISTRO="$PROOT_DISTRO"
-TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+# Robust TMPDIR for older Android
+if [ -n "\${TMPDIR:-}" ] && [ -d "\$TMPDIR" ] && [ -w "\$TMPDIR" ]; then
+    TERMUX_TMP="\$TMPDIR"
+elif [ -d "/data/data/com.termux/files/usr/tmp" ] && [ -w "/data/data/com.termux/files/usr/tmp" ]; then
+    TERMUX_TMP="/data/data/com.termux/files/usr/tmp"
+else
+    TERMUX_TMP="/tmp"
+    mkdir -p "\$TERMUX_TMP" 2>/dev/null || TERMUX_TMP="\$HOME"
+fi
 LOG="\$TERMUX_TMP/proot-${appname}.log"
 
 BINDS=""
@@ -528,11 +606,14 @@ WRAPEOF
 done
 
 echo "[+] Bridge: $SYNCED synced, $REMOVED removed."
-echo "    Logs: \$TERMUX_TMP/proot-<appname>.log"
+echo "    Logs: $TERMUX_TMP/proot-<appname>.log"
 echo "    Re-run after new installs: bash ~/proot-menu-sync.sh"
 
-pgrep -x "xfce4-panel" > /dev/null 2>&1 && xfce4-panel --restart > /dev/null 2>&1 &
-pgrep -x "xfdesktop"   > /dev/null 2>&1 && { sleep 1; xfdesktop --reload > /dev/null 2>&1 & }
+# Restart panels if running (guard pgrep for old Android)
+if command -v pgrep > /dev/null 2>&1; then
+    pgrep -x "xfce4-panel" > /dev/null 2>&1 && xfce4-panel --restart > /dev/null 2>&1 &
+    pgrep -x "xfdesktop"   > /dev/null 2>&1 && { sleep 1; xfdesktop --reload > /dev/null 2>&1 & }
+fi
 SYNCEOF
     chmod +x ~/proot-menu-sync.sh
     echo -e "  [+] Created ~/proot-menu-sync.sh"
@@ -884,11 +965,11 @@ step_shortcuts() {
     echo ""
     mkdir -p ~/Desktop
 
-    cat > ~/Desktop/Firefox.desktop << 'EOF'
+    cat > ~/Desktop/Helium.desktop << 'EOF'
 [Desktop Entry]
-Name=Firefox
-Exec=firefox
-Icon=firefox
+Name=Helium Browser
+Exec=helium
+Icon=helium
 Type=Application
 EOF
 
@@ -924,7 +1005,7 @@ Terminal=false
 EOF
 
     chmod +x ~/Desktop/*.desktop 2>/dev/null
-    echo -e "  [+] Shortcuts: Firefox, Files, Terminal, Proot"
+    echo -e "  [+] Shortcuts: Helium, Files, Terminal, Proot"
 }
 
 # ============== VNC (OPTIONAL — asked at end) ==============
@@ -1024,7 +1105,7 @@ show_completion() {
     echo -e "${GREEN}"
     cat << 'COMPLETE'
     ╔══════════════════════════════════════════╗
-    ║       INSTALLATION COMPLETE!             ║
+    ║     P-NOROOT LINUX INSTALL COMPLETE!     ║
     ╚══════════════════════════════════════════╝
 COMPLETE
     echo -e "${NC}"
@@ -1032,10 +1113,11 @@ COMPLETE
     echo -e "${WHITE}[*] ${DE_NAME} desktop is ready.${NC}"
     echo ""
     echo -e "${CYAN}[*] Installed:${NC}"
-    echo "    - Firefox, Git, Python 3"
+    echo "    - Helium Browser, Git, Python 3"
     echo "    - GPU Acceleration (Turnip/Zink)"
     echo "    - Proot Linux Container + App Bridge"
     echo "    - Modern Dark XFCE Theme (Adwaita + Dracula terminal)"
+    echo "    - SD Card Storage Support"
     echo ""
     echo -e "${YELLOW}============================================================${NC}"
     echo -e "${WHITE}  HOW TO START:${NC}"
