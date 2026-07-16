@@ -33,6 +33,13 @@ STORAGE_MODE="internal"     # internal | sd
 SD_CARD_ID=""               # e.g. 1A2B-3C4D (only when STORAGE_MODE=sd)
 PROOT_SD_BASE=""            # e.g. /storage/1A2B-3C4D/p-noroot-linux
 
+# ---- Update mode ----
+# When run by update.sh (PNOROOT_UPDATE=1) the script refreshes packages and
+# regenerates helper scripts but PRESERVES the user's config: it skips the
+# XFCE theme/wallpaper and VNC steps, doesn't re-prompt for storage, and won't
+# re-download the Proot rootfs if it's already installed.
+UPDATE_MODE="${PNOROOT_UPDATE:-0}"
+
 # Wallpaper URL — Ubuntu 4K wallpaper (set by user)
 WALLPAPER_URL="https://wallpapercave.com/download/ubuntu-4k-wallpapers-wp8303186"
 
@@ -181,6 +188,21 @@ setup_environment() {
 # writable by Termux without any extra storage permission on modern Android.
 TERMUX_PKG="com.termux"
 setup_storage() {
+    # In update mode, keep whatever storage the user already chose (detected
+    # from the installed-rootfs symlink) — never re-prompt.
+    if [ "$UPDATE_MODE" = "1" ]; then
+        local pd_rootfs="${TERMUX_PREFIX}/var/lib/proot-distro/installed-rootfs"
+        if [ -L "$pd_rootfs" ]; then
+            STORAGE_MODE="sd"
+            SD_CARD_ID=$(readlink "$pd_rootfs" | sed -n 's#^/storage/\([^/]*\)/.*#\1#p')
+            echo -e "  ${GREEN}[+] Update mode: keeping SD storage (${SD_CARD_ID}).${NC}"
+        else
+            STORAGE_MODE="internal"
+            echo -e "  ${GREEN}[+] Update mode: keeping internal storage.${NC}"
+        fi
+        return 0
+    fi
+
     echo ""
     echo -e "${YELLOW}============================================================${NC}"
     echo -e "${WHITE}  STORAGE: where should the Linux container live?${NC}"
@@ -441,9 +463,14 @@ step_proot() {
     #     3) PROOT_DISTRO="kali-nethunter"; PROOT_LABEL="Kali Linux";;
     # esac
 
-    echo -e "\n${GREEN}[+] Installing ${PROOT_LABEL}...${NC}"
-    (proot-distro install "$PROOT_DISTRO" > /dev/null 2>&1) &
-    spinner $! "Downloading ${PROOT_LABEL} rootfs (may take a while)..."
+    # Don't re-download the rootfs if it's already installed (update mode).
+    if [ -d "${TERMUX_PREFIX}/var/lib/proot-distro/installed-rootfs/$PROOT_DISTRO/bin" ]; then
+        echo -e "${GREEN}[+] ${PROOT_LABEL} already installed — skipping download.${NC}"
+    else
+        echo -e "\n${GREEN}[+] Installing ${PROOT_LABEL}...${NC}"
+        (proot-distro install "$PROOT_DISTRO" > /dev/null 2>&1) &
+        spinner $! "Downloading ${PROOT_LABEL} rootfs (may take a while)..."
+    fi
 
     echo -e "  [*] Bootstrapping ${PROOT_LABEL}..."
     # PROOT_NO_SECCOMP=1 keeps proot working on old Android kernels whose
@@ -490,24 +517,23 @@ step_proot() {
     echo -e "  [+] Proot user '${SETUP_USERNAME}' created with passwordless sudo"
 
     # ---- Helium browser (by imputnet) ----
-    # Helium is a Chromium-based browser and is not in the Termux/TUR repos, so
-    # we install the official arm64 .deb inside the Ubuntu Proot container.
+    # Helium is a Chromium-based browser not in the Termux/TUR repos, so we
+    # install it from imputnet's official APT repo inside the Ubuntu container.
     echo -e "  [*] Installing Helium browser (by imputnet)..."
     (PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c '
         export DEBIAN_FRONTEND=noninteractive
-        cd /tmp || exit 0
-        # Resolve the latest arm64 .deb, fall back to a known-good pinned build.
-        DEB_URL=$(curl -fsSL https://api.github.com/repos/imputnet/helium-linux/releases/latest 2>/dev/null \
-            | grep -o "https://[^\"]*arm64\.deb" | head -1)
-        [ -z "$DEB_URL" ] && DEB_URL="https://github.com/imputnet/helium-linux/releases/download/0.14.6.1/helium-bin_0.14.6.1-1_arm64.deb"
         apt-get update -y -q > /dev/null 2>&1
-        if wget -q -O helium.deb "$DEB_URL"; then
-            apt-get install -y -q ./helium.deb > /dev/null 2>&1 \
-                || { dpkg -i helium.deb > /dev/null 2>&1; apt-get -f install -y -q > /dev/null 2>&1; }
-        fi
-        rm -f helium.deb
+        apt-get install -y -q curl gnupg ca-certificates > /dev/null 2>&1
+        # Add Helium signing key + apt repo (idempotent).
+        mkdir -p /usr/share/keyrings
+        curl -fsSL https://raw.githubusercontent.com/imputnet/helium-linux/main/pubkey.asc \
+            | gpg --dearmor -o /usr/share/keyrings/helium.gpg 2>/dev/null
+        echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/helium.gpg] https://pkg.helium.computer/deb stable main" \
+            > /etc/apt/sources.list.d/helium.list
+        apt-get update -y -q > /dev/null 2>&1
+        apt-get install -y -q helium-bin > /dev/null 2>&1
     ' 2>/dev/null) &
-    spinner $! "Downloading & installing Helium browser..."
+    spinner $! "Adding Helium repo & installing helium-bin..."
     if PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c 'command -v helium > /dev/null 2>&1'; then
         echo -e "  [+] Helium browser installed"
     else
@@ -869,6 +895,23 @@ echo "Done."
 STOPEOF
     chmod +x ~/stop-linux.sh
     echo -e "  [+] Created ~/stop-linux.sh"
+
+    # ~/update.sh: thin wrapper that fetches & runs the latest updater. Keeps
+    # the user's config (theme, wallpaper, proot data, storage choice).
+    cat > ~/update.sh << 'UPDEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+# P-noroot linux — pull the latest scripts and re-apply them, keeping your config.
+mkdir -p "$HOME/.p-noroot"
+echo "[*] Fetching latest updater..."
+if curl -fsSL https://raw.githubusercontent.com/Juanoto2012/Proot/main/update.sh \
+        -o "$HOME/.p-noroot/update.sh"; then
+    exec bash "$HOME/.p-noroot/update.sh"
+fi
+echo "[!] Could not download the updater. Check your internet connection."
+exit 1
+UPDEOF
+    chmod +x ~/update.sh
+    echo -e "  [+] Created ~/update.sh"
 }
 
 # ============== STEP 11: XFCE MODERN THEME ==============
@@ -1289,6 +1332,9 @@ COMPLETE
     echo -e "  ${GREEN}Stop everything:${NC}"
     echo -e "    ${WHITE}bash ~/stop-linux.sh${NC}"
     echo ""
+    echo -e "  ${GREEN}Update (keeps your config):${NC}"
+    echo -e "    ${WHITE}bash ~/update.sh${NC}"
+    echo ""
     echo -e "${YELLOW}============================================================${NC}"
     echo ""
     echo -e "${CYAN}  👤 Your username : ${WHITE}${SETUP_USERNAME}${NC}"
@@ -1316,11 +1362,15 @@ main() {
     step_python
     step_proot
     step_launchers
-    step_theme_xfce
+    if [ "$UPDATE_MODE" = "1" ]; then
+        echo -e "${GREEN}[+] Update mode: keeping your XFCE theme, wallpaper and VNC config.${NC}"
+    else
+        step_theme_xfce
+    fi
     step_shortcuts
 
-    # Optional VNC — asked after all main steps
-    step_vnc_optional
+    # Optional VNC — asked after all main steps (skipped in update mode)
+    [ "$UPDATE_MODE" = "1" ] || step_vnc_optional
 
     # Apply username to native Termux shell prompt
     BASHRC="$HOME/.bashrc"
