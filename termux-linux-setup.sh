@@ -657,11 +657,11 @@ HELIUMEOF
     chmod +x ~/helium.sh
     echo -e "  [+] Created ~/helium.sh (Helium browser launcher)"
 
-    # ---- proot-menu-sync.sh (v4 — embedded) ----
+    # ---- proot-menu-sync.sh (v5 — embedded) ----
     cat > ~/proot-menu-sync.sh << 'SYNCEOF'
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================
-#  Proot App Menu Bridge v4
+#  Proot App Menu Bridge v5
 #  Syncs proot .desktop files into native XFCE menu.
 #  Fixes: $TMPDIR log path, runtime X11 bind, dbus-run-session,
 #         Blender libvulkan auto-detect, LibreOffice --norestore
@@ -669,6 +669,9 @@ HELIUMEOF
 #      - PROOT_NO_SECCOMP=1 (works on old kernels)
 #      - busybox-safe grep (-E instead of \|) and pgrep guards
 #      - Chromium/Helium apps get --no-sandbox automatically
+#  v5: use $PREFIX (not a hardcoded path) and ask proot-distro itself
+#      whether the distro is installed, so an SD-card rootfs symlink no
+#      longer causes a false "'ubuntu' not installed" every run.
 # ============================================================
 
 # Keep proot working on old Android kernels whose seccomp filters
@@ -676,19 +679,27 @@ HELIUMEOF
 export PROOT_NO_SECCOMP=1
 
 PROOT_DISTRO="${1:-ubuntu}"
-PROOT_BIN="/data/data/com.termux/files/usr/bin/proot-distro"
-PROOT_ROOTFS="/data/data/com.termux/files/usr/var/lib/proot-distro/installed-rootfs/$PROOT_DISTRO"
+PREFIX_DIR="${PREFIX:-/data/data/com.termux/files/usr}"
+PROOT_BIN="$PREFIX_DIR/bin/proot-distro"
+PROOT_ROOTFS="$PREFIX_DIR/var/lib/proot-distro/installed-rootfs/$PROOT_DISTRO"
 PROOT_APPS="$PROOT_ROOTFS/usr/share/applications"
 BRIDGE_DIR="$HOME/.local/share/applications/proot-bridge"
 WRAPPER_DIR="$HOME/.local/share/proot-wrappers"
-TERMUX_TMP="${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+TERMUX_TMP="${TMPDIR:-$PREFIX_DIR/tmp}"
 
 if [ ! -f "$PROOT_BIN" ]; then
     echo "[!] proot-distro not found. pkg install proot-distro"
     exit 1
 fi
-if [ ! -d "$PROOT_ROOTFS" ]; then
+# Ask proot-distro itself instead of trusting a fixed directory path: when the
+# rootfs lives on an SD card it is a symlink, and a plain "-d" test can fail
+# (unmounted at boot, scoped-storage timing) even though proot can reach it.
+if [ ! -d "$PROOT_ROOTFS" ] && \
+   ! "$PROOT_BIN" login "$PROOT_DISTRO" -- true > /dev/null 2>&1; then
     echo "[!] Proot distro '$PROOT_DISTRO' not installed."
+    echo "    Install it with: proot-distro install $PROOT_DISTRO"
+    echo "    (or re-run the setup / bash ~/update.sh). If it's on an SD card,"
+    echo "    make sure the card is mounted and storage permission is granted."
     exit 1
 fi
 if [ ! -d "$PROOT_APPS" ]; then
