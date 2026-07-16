@@ -175,7 +175,11 @@ setup_environment() {
 # By default the whole setup lives in Termux's private folder ($PREFIX).
 # The Proot container is by far the biggest part (several GB once you install
 # apps). On phones with little internal storage the user can move it to an SD
-# card. We ask, and if they say yes we list the SD card IDs and let them pick.
+# card. We ask; if yes, we list the detected SD IDs AND let the user type their
+# own ID. The data is stored in Termux's private (app-specific) folder on that
+# SD card: /storage/<ID>/Android/data/com.termux/files/... — this path is
+# writable by Termux without any extra storage permission on modern Android.
+TERMUX_PKG="com.termux"
 setup_storage() {
     echo ""
     echo -e "${YELLOW}============================================================${NC}"
@@ -219,43 +223,56 @@ setup_storage() {
     done
 
     if [ ${#ids[@]} -eq 0 ]; then
-        echo -e "  ${YELLOW}[!] No SD card detected under /storage.${NC}"
-        echo -e "  ${YELLOW}    Make sure a card is inserted and storage permission is granted${NC}"
-        echo -e "  ${YELLOW}    (termux-setup-storage). Falling back to internal storage.${NC}"
-        STORAGE_MODE="internal"
-        return 0
+        echo -e "  ${YELLOW}[!] No SD card auto-detected under /storage.${NC}"
+        echo -e "  ${YELLOW}    You can still type your SD ID manually below, or press${NC}"
+        echo -e "  ${YELLOW}    Enter to use internal storage.${NC}"
+    else
+        echo ""
+        echo -e "  ${CYAN}Detected SD card ID(s):${NC}"
+        local i=1
+        for id in "${ids[@]}"; do
+            echo -e "    ${WHITE}${i}) ${id}${NC}"
+            i=$((i + 1))
+        done
     fi
-
     echo ""
-    echo -e "  ${CYAN}Detected SD card ID(s):${NC}"
-    local i=1
-    for id in "${ids[@]}"; do
-        echo -e "    ${WHITE}${i}) ${id}${NC}"
-        i=$((i + 1))
-    done
+    echo -e "  ${GRAY}You can pick a number from the list, or type your SD ID directly${NC}"
+    echo -e "  ${GRAY}(the ID looks like 1A2B-3C4D and is the folder name under /storage).${NC}"
     echo ""
 
     local sel
     while true; do
-        read -p "  Select your SD card ID (1-${#ids[@]}) [Enter = internal]: " sel
+        read -p "  Select or type your SD card ID [Enter = internal]: " sel
         if [ -z "$sel" ]; then
             STORAGE_MODE="internal"
             echo -e "  ${GREEN}[+] Using internal storage (Termux private folder).${NC}"
             return 0
         fi
-        if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#ids[@]} ]; then
+        # A plain number picks from the detected list...
+        if [[ "$sel" =~ ^[0-9]+$ ]] && [ ${#ids[@]} -gt 0 ] \
+                && [ "$sel" -ge 1 ] && [ "$sel" -le ${#ids[@]} ]; then
+            SD_CARD_ID="${ids[$((sel - 1))]}"
             break
         fi
-        echo -e "  ${YELLOW}Please enter a number between 1 and ${#ids[@]}.${NC}"
+        # ...otherwise treat the input as a typed SD ID (e.g. 1A2B-3C4D).
+        if [[ "$sel" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            SD_CARD_ID="$sel"
+            break
+        fi
+        echo -e "  ${YELLOW}Enter a list number, or an SD ID like 1A2B-3C4D.${NC}"
     done
 
-    SD_CARD_ID="${ids[$((sel - 1))]}"
-    PROOT_SD_BASE="/storage/${SD_CARD_ID}/p-noroot-linux"
+    # Store data in Termux's private (app-specific) folder on the SD card.
+    # This is writable without extra storage permissions on modern Android.
+    local sd_termux_priv="/storage/${SD_CARD_ID}/Android/data/${TERMUX_PKG}/files"
+    PROOT_SD_BASE="${sd_termux_priv}/p-noroot-linux"
 
     # Verify we can actually write there before committing.
     if ! mkdir -p "$PROOT_SD_BASE/installed-rootfs" 2>/dev/null; then
         echo -e "  ${YELLOW}[!] Cannot write to ${PROOT_SD_BASE}.${NC}"
-        echo -e "  ${YELLOW}    The card may be read-only for apps. Falling back to internal.${NC}"
+        echo -e "  ${YELLOW}    Check the SD ID is correct, the card is inserted, and that${NC}"
+        echo -e "  ${YELLOW}    storage permission is granted (termux-setup-storage).${NC}"
+        echo -e "  ${YELLOW}    Falling back to internal storage.${NC}"
         STORAGE_MODE="internal"
         SD_CARD_ID=""
         PROOT_SD_BASE=""
@@ -274,7 +291,8 @@ setup_storage() {
     ln -sfn "$PROOT_SD_BASE/installed-rootfs" "$pd_rootfs"
 
     STORAGE_MODE="sd"
-    echo -e "  ${GREEN}[+] Linux container will be stored on SD card:${NC}"
+    echo -e "  ${GREEN}[+] Linux container will be stored in Termux's private folder${NC}"
+    echo -e "  ${GREEN}    on SD card ${SD_CARD_ID}:${NC}"
     echo -e "      ${WHITE}${PROOT_SD_BASE}/installed-rootfs${NC}"
     echo -e "  ${GRAY}    (scripts, config and menu still live in Termux's private folder)${NC}"
     sleep 1

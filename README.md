@@ -82,7 +82,7 @@ bash setup.sh
 ```
 
 The script will:
-0. Ask where to store the Linux container: **internal** (Termux private folder, default) or an **SD card** -- if you pick SD, it lists the detected SD card IDs (`/storage/XXXX-XXXX`) and asks you to select yours
+0. Ask where to store the Linux container: **internal** (Termux private folder, default) or an **SD card** -- if you pick SD, it lists the detected SD card IDs and also lets you **type your own SD ID** (e.g. `1A2B-3C4D`). The data is kept in Termux's private (app-specific) folder on that card (`/storage/<ID>/Android/data/com.termux/files/p-noroot-linux`), which Termux can write to without extra storage permissions
 1. Update Termux packages
 2. Add X11 and TUR repositories
 3. Install your chosen desktop environment (XFCE4/LXQt/MATE/KDE)
