@@ -464,12 +464,42 @@ step_proot() {
     # esac
 
     # Don't re-download the rootfs if it's already installed (update mode).
-    if [ -d "${TERMUX_PREFIX}/var/lib/proot-distro/installed-rootfs/$PROOT_DISTRO/bin" ]; then
+    local rootfs_dir="${TERMUX_PREFIX}/var/lib/proot-distro/installed-rootfs/$PROOT_DISTRO"
+    if [ -d "$rootfs_dir/bin" ]; then
         echo -e "${GREEN}[+] ${PROOT_LABEL} already installed — skipping download.${NC}"
     else
-        echo -e "\n${GREEN}[+] Installing ${PROOT_LABEL}...${NC}"
-        (proot-distro install "$PROOT_DISTRO" > /dev/null 2>&1) &
-        spinner $! "Downloading ${PROOT_LABEL} rootfs (may take a while)..."
+        # Install with retries. On old Android (e.g. Android 10 "ginkgo") the
+        # post-extraction step runs proot and dies unless seccomp is disabled,
+        # which used to leave a half-written rootfs and the classic
+        # "<distro> is not installed" error later on. We disable seccomp,
+        # retry a few times, and clean up partial state between attempts.
+        local install_log="${TMPDIR:-$TERMUX_PREFIX/tmp}/pnoroot-proot-install.log"
+        mkdir -p "$(dirname "$install_log")"
+        local attempt=1 max_attempts=3 installed=0
+        while [ "$attempt" -le "$max_attempts" ]; do
+            echo -e "\n${GREEN}[+] Installing ${PROOT_LABEL} (attempt ${attempt}/${max_attempts})...${NC}"
+            (PROOT_NO_SECCOMP=1 proot-distro install "$PROOT_DISTRO" > "$install_log" 2>&1) &
+            spinner $! "Downloading ${PROOT_LABEL} rootfs (may take a while)..."
+            if [ -d "$rootfs_dir/bin" ]; then
+                installed=1
+                break
+            fi
+            echo -e "  ${YELLOW}[!] Attempt ${attempt} failed. Cleaning up partial install...${NC}"
+            PROOT_NO_SECCOMP=1 proot-distro remove "$PROOT_DISTRO" > /dev/null 2>&1 || true
+            attempt=$((attempt + 1))
+            sleep 2
+        done
+
+        if [ "$installed" -ne 1 ]; then
+            echo -e "\n${RED}[X] Could not install ${PROOT_LABEL}.${NC}"
+            echo -e "  ${YELLOW}Last lines of the install log (${install_log}):${NC}"
+            tail -n 15 "$install_log" 2>/dev/null | sed 's/^/    /'
+            echo -e "  ${YELLOW}Common fixes on old Android (Android 10 / ginkgo):${NC}"
+            echo -e "    • Check internet + free storage (rootfs needs ~1.5 GB)."
+            echo -e "    • Re-run: ${WHITE}PROOT_NO_SECCOMP=1 proot-distro install ${PROOT_DISTRO}${NC}"
+            echo -e "    • Then re-run this setup (it resumes without re-downloading)."
+            exit 1
+        fi
     fi
 
     echo -e "  [*] Bootstrapping ${PROOT_LABEL}..."
