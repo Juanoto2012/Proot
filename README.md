@@ -177,6 +177,24 @@ Add this line:
 | `bash ~/start-proot.sh` | Open Proot Linux shell |
 | `bash ~/proot-menu-sync.sh` | Sync Proot apps to desktop menu |
 | `bash ~/stop-linux.sh` | Stop all sessions |
+| `bash ~/update.sh` | Update to the latest scripts (keeps your config) |
+
+## Updating
+
+When the scripts get new features or fixes, run:
+
+```bash
+bash ~/update.sh
+```
+
+It pulls the latest version and re-applies it **without touching your config**:
+your XFCE theme, wallpaper, VNC setup, username, installed Proot apps and your
+SD-card storage choice are all preserved. It refreshes packages, updates Helium,
+and regenerates the helper scripts. A backup of your previous config is saved
+under `~/.p-noroot/backups/<timestamp>/` before anything changes.
+
+Helium is installed from imputnet's official APT repo inside the container
+(`https://pkg.helium.computer/deb`), so `sudo apt upgrade` also keeps it current.
 
 ## Notes
 
