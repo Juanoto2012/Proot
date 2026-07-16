@@ -107,8 +107,26 @@ Then open the Termux-X11 app on your phone. Your desktop is ready.
 
 Open **Install App** on the desktop (or run `bash ~/app-installer.sh`), pick a
 `.deb` or `.AppImage`, and it is installed into the hidden Proot backend and
-added to your menu automatically. Native Termux tools can still be installed
-with `pkg install <name>`.
+added to your menu automatically.
+
+For native Termux apps, use **Click n run** (desktop shortcut or
+`bash ~/click-n-run.sh`): a visual "app store" that searches the Termux package
+index and installs apps with a couple of clicks — GUI apps then show up in the
+menu automatically.
+
+### Memory & stability
+
+Non-rooted Android **cannot enable swap or zram** (both require root), so this
+project doesn't create swap. Instead an **anti-OOM guard** (`~/anti-oom.sh`,
+auto-started by `start-x11.sh`) watches free RAM and, when it gets critical,
+closes the single heaviest app to keep the desktop alive instead of letting
+Android kill everything at once. Thresholds are tunable via `ANTIOOM_LOW_PCT` /
+`ANTIOOM_CRIT_PCT`.
+
+If the Linux backend ever reports `container 'ubuntu' is not installed` (common
+when it lives on an SD card that got unmounted), run `bash ~/fix-proot.sh` — it
+prints diagnostics, repairs a dangling SD link, and reinstalls the rootfs if
+needed.
 
 ## Raspberry Pi Monitor Bridge Setup
 
@@ -169,6 +187,8 @@ Add this line:
 | `bash ~/start-vnc.sh` | Start desktop via VNC (if installed) |
 | `bash ~/chromium.sh` | Launch Chromium (with uBlock Origin) |
 | `bash ~/app-installer.sh` | Visual `.deb` / AppImage installer |
+| `bash ~/click-n-run.sh` | Click n run — visual Termux app store |
+| `bash ~/fix-proot.sh` | Diagnose / repair the Linux backend |
 | `bash ~/proot-menu-sync.sh` | Sync installed apps to desktop menu |
 | `bash ~/stop-linux.sh` | Stop all sessions |
 | `bash ~/update.sh` | Update to the latest scripts (keeps your config) |
