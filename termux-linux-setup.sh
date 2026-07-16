@@ -248,11 +248,15 @@ setup_storage() {
             echo -e "  ${GREEN}[+] Using internal storage (Termux private folder).${NC}"
             return 0
         fi
-        # A plain number picks from the detected list...
-        if [[ "$sel" =~ ^[0-9]+$ ]] && [ ${#ids[@]} -gt 0 ] \
-                && [ "$sel" -ge 1 ] && [ "$sel" -le ${#ids[@]} ]; then
-            SD_CARD_ID="${ids[$((sel - 1))]}"
-            break
+        # A plain number always refers to the detected list; reject it (and
+        # re-prompt) if it is out of range instead of treating it as an SD ID.
+        if [[ "$sel" =~ ^[0-9]+$ ]]; then
+            if [ ${#ids[@]} -gt 0 ] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#ids[@]} ]; then
+                SD_CARD_ID="${ids[$((sel - 1))]}"
+                break
+            fi
+            echo -e "  ${YELLOW}Enter a list number between 1 and ${#ids[@]}, or an SD ID like 1A2B-3C4D.${NC}"
+            continue
         fi
         # ...otherwise treat the input as a typed SD ID (e.g. 1A2B-3C4D).
         if [[ "$sel" =~ ^[A-Za-z0-9._-]+$ ]]; then
