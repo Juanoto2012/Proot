@@ -302,8 +302,6 @@ step_apps() {
     install_pkg "imagemagick" "ImageMagick (wallpaper)"
     install_pkg "nodejs" "Node.js"
     install_pkg "openssh" "OpenSSH"
-    install_pkg "neofetch" "Neofetch"
-    install_pkg "htop" "htop"
 }
 
 # ============== STEP 8: PYTHON ==============
@@ -361,7 +359,7 @@ step_proot() {
             mesa-utils vulkan-tools \
             libgl1-mesa-glx libvulkan1 libgles2 \
             xfce4 xfce4-terminal dbus-x11 \
-            sudo curl wget git htop nano > /dev/null 2>&1
+            sudo curl wget git nano > /dev/null 2>&1
     " 2>/dev/null || true
     echo -e "  [+] ${PROOT_LABEL} ready."
 
