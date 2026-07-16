@@ -367,6 +367,9 @@ step_desktop() {
         install_pkg "xfce4-notifyd" "XFCE Notifications"
         install_pkg "thunar" "Thunar File Manager"
         install_pkg "mousepad" "Mousepad Editor"
+        # Modern flat Windows 11-style look (native desktop runs in Termux).
+        install_pkg "fluent-gtk-theme" "Fluent GTK theme (Windows 11 style)"
+        install_pkg "fluent-icon-theme" "Fluent icon theme"
     elif [ "$DE_CHOICE" == "2" ]; then
         install_pkg "lxqt" "LXQt Desktop"
         install_pkg "qterminal" "QTerminal"
@@ -512,7 +515,6 @@ step_proot() {
             mesa-utils vulkan-tools \
             libgl1-mesa-glx libvulkan1 libgles2 \
             xfce4 xfce4-terminal dbus-x11 \
-            oxygen-icon-theme \
             sudo curl wget git htop nano > /dev/null 2>&1
     " 2>/dev/null || true
     echo -e "  [+] ${PROOT_LABEL} ready."
@@ -645,7 +647,11 @@ X11_DIR="\$TERMUX_TMP/.X11-unix"
 export DISPLAY=:0
 export XDG_RUNTIME_DIR=/tmp
 export MESA_NO_ERROR=1
-dbus-run-session helium --no-sandbox "\$@"
+# Chromium runs as root inside proot: --no-sandbox is required, and the
+# zygote/namespace helpers hit "Operation not permitted" under proot on
+# Android, so disable them too. --disable-dev-shm-usage avoids the tiny
+# /dev/shm inside the container.
+dbus-run-session helium --no-sandbox --no-zygote --disable-dev-shm-usage --disable-gpu-sandbox "\$@"
 ' helium "\$@"
 HELIUMEOF
     chmod +x ~/helium.sh
@@ -734,9 +740,11 @@ for desktop_file in "$PROOT_APPS"/*.desktop; do
     echo "$appname" | grep -qiE 'libreoffice|soffice' && \
         APP_CMD="$CLEAN_EXEC --norestore --nofirststartwizard"
 
-    # Chromium-based browsers run as root inside proot and need --no-sandbox.
+    # Chromium-based browsers run as root inside proot: --no-sandbox is needed,
+    # and the zygote/namespace helpers hit "Operation not permitted" under
+    # proot on Android, so disable them too.
     echo "$appname" | grep -qiE 'helium|chrome|chromium|brave|electron|vivaldi|opera' && \
-        APP_CMD="$CLEAN_EXEC --no-sandbox"
+        APP_CMD="$CLEAN_EXEC --no-sandbox --no-zygote --disable-dev-shm-usage --disable-gpu-sandbox"
 
     if echo "$appname" | grep -qi "blender"; then
         APP_CMD="$CLEAN_EXEC"
@@ -960,8 +968,8 @@ step_theme_xfce() {
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xsettings" version="1.0">
   <property name="Net" type="empty">
-    <property name="ThemeName" type="string" value="Adwaita-dark"/>
-    <property name="IconThemeName" type="string" value="oxygen"/>
+    <property name="ThemeName" type="string" value="Fluent-Dark"/>
+    <property name="IconThemeName" type="string" value="Fluent-dark"/>
   </property>
   <property name="Xft" type="empty">
     <property name="DPI" type="int" value="96"/>
@@ -985,7 +993,7 @@ XSEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfwm4" version="1.0">
   <property name="general" type="empty">
-    <property name="theme" type="string" value="Default-xhdpi"/>
+    <property name="theme" type="string" value="Fluent-Dark"/>
     <property name="title_font" type="string" value="Sans Bold 10"/>
     <property name="use_compositing" type="bool" value="false"/>
     <property name="frame_opacity" type="int" value="100"/>
@@ -1075,10 +1083,10 @@ WALLPAPER="$HOME/.config/linux-wallpaper.jpg"
 
 sleep 4  # Wait for xfconfd + panel to be ready
 
-# ---- Dark Adwaita theme + Oxygen icons ----
-xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita-dark"
-xfconf-query -c xsettings -p /Net/IconThemeName -s "oxygen"
-xfconf-query -c xfwm4 -p /general/theme -s "Default-xhdpi"
+# ---- Modern flat Windows 11-style theme (Fluent) ----
+xfconf-query -c xsettings -p /Net/ThemeName -s "Fluent-Dark"
+xfconf-query -c xsettings -p /Net/IconThemeName -s "Fluent-dark"
+xfconf-query -c xfwm4 -p /general/theme -s "Fluent-Dark"
 
 # ---- Panel: Move panel-1 to bottom, resize ----
 # Position: p=8 = bottom-center
@@ -1168,7 +1176,7 @@ AREOF
         echo -e "      Desktop will use XFCE default background."
     fi
 
-    echo -e "  [+] XFCE theme: Adwaita-dark + Oxygen icons + Dracula terminal"
+    echo -e "  [+] XFCE theme: Fluent-Dark (Windows 11 style) + Fluent icons + Dracula terminal"
     echo -e "  [+] Compositing OFF for lower RAM/CPU usage (better on old devices)"
     echo -e "  [+] First-run script will configure panels on first launch"
 }

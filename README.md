@@ -90,7 +90,7 @@ The script will:
 5. Install Git, Python, and core tools
 6. Set up a Proot Linux container (Ubuntu) with the Helium browser (by imputnet)
 7. Create the App Bridge for automatic menu syncing
-8. Apply a modern dark theme
+8. Apply a modern flat Windows 11-style dark theme (Fluent + Fluent icons), with the compositor off to keep RAM/CPU usage low
 9. Optionally set up VNC for remote access
 
 ### Step 4: Start the Desktop
