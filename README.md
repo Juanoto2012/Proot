@@ -1,8 +1,8 @@
 # P-noroot linux
 
-A light, usable, no-root Linux desktop for any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- Helium browser, Blender, Metasploit, local AI, all of it.
+A light, usable, no-root Linux desktop for any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- native Chromium browser, Blender, Metasploit, local AI, all of it.
 
-Designed to stay lightweight: it preinstalls the **Helium** browser (by [imputnet](https://github.com/imputnet/helium-linux)) instead of Firefox, skips heavy defaults like VS Code (install anything you want inside the container), and lets you keep the Linux container on an **SD card** if internal storage is tight. By default everything lives inside Termux's private folder.
+Designed to stay lightweight: it preinstalls a **native Chromium** browser with **uBlock Origin** (no proot needed to browse), skips heavy defaults like VS Code, includes a **visual `.deb` / AppImage installer** (a hidden Proot glibc backend runs the apps and adds them to your menu), and lets you keep the Linux backend on an **SD card** if internal storage is tight. By default everything lives inside Termux's private folder.
 
 Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your entire setup comes with you.
 
@@ -14,7 +14,7 @@ Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your en
 
 Everything below has been tested and confirmed working:
 
-- **Helium** -- Privacy-focused Chromium browser (by imputnet), preinstalled.
+- **Chromium** -- Native Termux Chromium browser with **uBlock Origin** preinstalled (runs without proot).
 - **LibreOffice** -- Word processing, spreadsheets, presentations. Fully functional.
 - **VS Code** -- Full version (installed inside the container with `apt`). Python, PIP, extensions, everything.
 - **Claude Code** -- AI coding agent running directly in terminal.
@@ -88,7 +88,7 @@ The script will:
 3. Install your chosen desktop environment (XFCE4/LXQt/MATE/KDE)
 4. Set up GPU acceleration (Turnip for Adreno, Zink fallback for others)
 5. Install Git, Python, and core tools
-6. Set up a Proot Linux container (Ubuntu) with the Helium browser (by imputnet)
+6. Set up a Proot Linux backend (Ubuntu) for the visual `.deb` / AppImage installer
 7. Create the App Bridge for automatic menu syncing
 8. Apply a modern flat Windows 11-style dark theme (Fluent + Fluent icons), with the compositor off to keep RAM/CPU usage low
 9. Optionally set up VNC for remote access
@@ -103,18 +103,12 @@ bash ~/start-x11.sh
 
 Then open the Termux-X11 app on your phone. Your desktop is ready.
 
-### Step 5: Install Apps Inside Proot
+### Step 5: Install Desktop Apps (.deb / AppImage)
 
-To install tools that are not in TUR:
-
-```bash
-bash ~/start-proot.sh
-apt install wireshark    # or any other package
-exit
-bash ~/proot-menu-sync.sh
-```
-
-The app will appear in your desktop menu automatically.
+Open **Install App** on the desktop (or run `bash ~/app-installer.sh`), pick a
+`.deb` or `.AppImage`, and it is installed into the hidden Proot backend and
+added to your menu automatically. Native Termux tools can still be installed
+with `pkg install <name>`.
 
 ## Raspberry Pi Monitor Bridge Setup
 
@@ -173,9 +167,9 @@ Add this line:
 |---|---|
 | `bash ~/start-x11.sh` | Start desktop via Termux-X11 |
 | `bash ~/start-vnc.sh` | Start desktop via VNC (if installed) |
-| `bash ~/helium.sh` | Launch the Helium browser |
-| `bash ~/start-proot.sh` | Open Proot Linux shell |
-| `bash ~/proot-menu-sync.sh` | Sync Proot apps to desktop menu |
+| `bash ~/chromium.sh` | Launch Chromium (with uBlock Origin) |
+| `bash ~/app-installer.sh` | Visual `.deb` / AppImage installer |
+| `bash ~/proot-menu-sync.sh` | Sync installed apps to desktop menu |
 | `bash ~/stop-linux.sh` | Stop all sessions |
 | `bash ~/update.sh` | Update to the latest scripts (keeps your config) |
 
@@ -189,12 +183,12 @@ bash ~/update.sh
 
 It pulls the latest version and re-applies it **without touching your config**:
 your XFCE theme, wallpaper, VNC setup, username, installed Proot apps and your
-SD-card storage choice are all preserved. It refreshes packages, updates Helium,
-and regenerates the helper scripts. A backup of your previous config is saved
-under `~/.p-noroot/backups/<timestamp>/` before anything changes.
+SD-card storage choice are all preserved. It refreshes packages and regenerates
+the helper scripts. A backup of your previous config is saved under
+`~/.p-noroot/backups/<timestamp>/` before anything changes.
 
-Helium is installed from imputnet's official APT repo inside the container
-(`https://pkg.helium.computer/deb`), so `sudo apt upgrade` also keeps it current.
+uBlock Origin is force-installed in native Chromium via a managed policy, so it
+stays enabled across updates.
 
 ## Notes
 

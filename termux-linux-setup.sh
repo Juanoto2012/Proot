@@ -9,9 +9,9 @@
 #  - Smart GPU acceleration (Turnip/Zink)
 #  - Termux-X11 display + optional VNC
 #  - Modern dark XFCE theme + auto wallpaper
-#  - Proot Linux container (Ubuntu)
-#  - Helium browser (by imputnet) preinstalled
-#  - Proot App Bridge (apt installs appear in XFCE menu)
+#  - Native Chromium browser preinstalled with uBlock Origin
+#  - Visual .deb / AppImage installer (hidden Proot glibc backend)
+#  - Proot App Bridge (installed apps appear in XFCE menu)
 #  - Optional: store the Linux container on an SD card
 #  - Python & Web Dev environment
 #  - Everything lives inside Termux's private folder by default
@@ -411,7 +411,6 @@ step_apps() {
     update_progress
     echo -e "${PURPLE}[Step ${CURRENT_STEP}/${TOTAL_STEPS}] Installing Apps...${NC}"
     echo ""
-    # Helium browser is installed later inside the Proot container (step_proot).
     # Keep this list lean so the base install stays light.
     install_pkg "git" "Git"
     install_pkg "wget" "Wget"
@@ -421,6 +420,24 @@ step_apps() {
     install_pkg "openssh" "OpenSSH"
     install_pkg "neofetch" "Neofetch"
     install_pkg "htop" "htop"
+
+    # Native Chromium (runs in Termux, no proot) + zenity for the visual
+    # .deb/AppImage installer.
+    install_pkg "chromium" "Chromium browser (native)"
+    install_pkg "zenity" "Zenity (installer dialogs)"
+
+    # Force-install uBlock Origin (Lite, MV3 — required by modern Chromium)
+    # via Chromium's managed policy so it ships preinstalled and enabled.
+    local pol_dir="${TERMUX_PREFIX}/etc/chromium/policies/managed"
+    mkdir -p "$pol_dir"
+    cat > "$pol_dir/ublock-origin.json" << 'POLEOF'
+{
+  "ExtensionInstallForcelist": [
+    "ddkjiahejlhfcafbddmgiahcphecmpfh;https://clients2.google.com/service/update2/crx"
+  ]
+}
+POLEOF
+    echo -e "  [+] Chromium + uBlock Origin (policy) configured"
 }
 
 # ============== STEP 8: PYTHON ==============
@@ -549,29 +566,9 @@ step_proot() {
     " 2>/dev/null || true
     echo -e "  [+] Proot user '${SETUP_USERNAME}' created with passwordless sudo"
 
-    # ---- Helium browser (by imputnet) ----
-    # Helium is a Chromium-based browser not in the Termux/TUR repos, so we
-    # install it from imputnet's official APT repo inside the Ubuntu container.
-    echo -e "  [*] Installing Helium browser (by imputnet)..."
-    (PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c '
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -y -q > /dev/null 2>&1
-        apt-get install -y -q curl gnupg ca-certificates > /dev/null 2>&1
-        # Add Helium signing key + apt repo (idempotent).
-        mkdir -p /usr/share/keyrings
-        curl -fsSL https://raw.githubusercontent.com/imputnet/helium-linux/main/pubkey.asc \
-            | gpg --dearmor -o /usr/share/keyrings/helium.gpg 2>/dev/null
-        echo "deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/helium.gpg] https://pkg.helium.computer/deb stable main" \
-            > /etc/apt/sources.list.d/helium.list
-        apt-get update -y -q > /dev/null 2>&1
-        apt-get install -y -q helium-bin > /dev/null 2>&1
-    ' 2>/dev/null) &
-    spinner $! "Adding Helium repo & installing helium-bin..."
-    if PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c 'command -v helium > /dev/null 2>&1'; then
-        echo -e "  [+] Helium browser installed"
-    else
-        echo -e "  ${YELLOW}[!] Helium install could not be confirmed; you can retry later inside proot.${NC}"
-    fi
+    # The browser is native Chromium in Termux (installed in step_apps); the
+    # Proot container is now only a hidden glibc backend used by the visual
+    # .deb / AppImage installer (~/app-installer.sh).
 
     PROOT_BIN="/data/data/com.termux/files/usr/bin/proot-distro"
     TERMUX_VK_ICD="/data/data/com.termux/files/usr/share/vulkan/icd.d"
@@ -627,35 +624,99 @@ PROOTEOF
     chmod +x ~/start-proot.sh
     echo -e "  [+] Created ~/start-proot.sh"
 
-    # ---- helium.sh (browser launcher) ----
-    # Launches Helium from inside the Proot container on the shared X11 display.
-    # --no-sandbox is required because the container runs Chromium as root.
-    cat > ~/helium.sh << HELIUMEOF
+    # ---- chromium.sh (native browser launcher) ----
+    # Chromium runs natively in Termux (no proot). uBlock Origin is force-
+    # installed through the managed policy written in step_apps.
+    cat > ~/chromium.sh << 'CHROMEEOF'
 #!/data/data/com.termux/files/usr/bin/bash
-PROOT_DISTRO="$PROOT_DISTRO"
-PROOT_BIN="$PROOT_BIN"
-TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
-export PROOT_NO_SECCOMP=1
-
-BINDS=""
-X11_DIR="\$TERMUX_TMP/.X11-unix"
-[ -d "\$X11_DIR" ]     && BINDS="\$BINDS --bind \$X11_DIR:/tmp/.X11-unix"
-[ -d "/dev/dri" ]      && BINDS="\$BINDS --bind /dev/dri:/dev/dri"
-[ -e "/dev/kgsl-3d0" ] && BINDS="\$BINDS --bind /dev/kgsl-3d0:/dev/kgsl-3d0"
-
-\$PROOT_BIN login "\$PROOT_DISTRO" \$BINDS -- /bin/bash -c '
 export DISPLAY=:0
-export XDG_RUNTIME_DIR=/tmp
-export MESA_NO_ERROR=1
-# Chromium runs as root inside proot: --no-sandbox is required, and the
-# zygote/namespace helpers hit "Operation not permitted" under proot on
-# Android, so disable them too. --disable-dev-shm-usage avoids the tiny
-# /dev/shm inside the container.
-dbus-run-session helium --no-sandbox --no-zygote --disable-dev-shm-usage --disable-gpu-sandbox "\$@"
-' helium "\$@"
-HELIUMEOF
-    chmod +x ~/helium.sh
-    echo -e "  [+] Created ~/helium.sh (Helium browser launcher)"
+# --no-sandbox: Android has no unprivileged user namespaces for the sandbox.
+exec chromium --no-sandbox --ozone-platform-hint=auto "$@"
+CHROMEEOF
+    chmod +x ~/chromium.sh
+    echo -e "  [+] Created ~/chromium.sh (native Chromium launcher)"
+
+    # ---- app-installer.sh (visual .deb / AppImage installer) ----
+    # Uses the Proot container purely as a hidden glibc backend so users can
+    # install real desktop .deb / AppImage apps with a GUI; installed apps then
+    # show up in the XFCE menu via proot-menu-sync.sh.
+    cat > ~/app-installer.sh << 'APPINSTEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+export PROOT_NO_SECCOMP=1
+PREFIX_DIR="${PREFIX:-/data/data/com.termux/files/usr}"
+PROOT_BIN="$PREFIX_DIR/bin/proot-distro"
+DISTRO="ubuntu"
+export DISPLAY=:0
+
+die(){ zenity --error --width=360 --text="$1" 2>/dev/null; exit 1; }
+
+command -v zenity >/dev/null 2>&1 || { echo "[!] zenity not installed."; exit 1; }
+[ -x "$PROOT_BIN" ] || die "proot-distro not found."
+"$PROOT_BIN" login "$DISTRO" -- true >/dev/null 2>&1 || \
+    die "The Linux backend is not installed. Re-run the setup first."
+
+FILE=$(zenity --file-selection \
+    --title="Select a .deb or .AppImage to install" \
+    --file-filter="Linux apps | *.deb *.AppImage *.appimage" \
+    --file-filter="All files | *" 2>/dev/null)
+[ -z "$FILE" ] && exit 0
+[ -f "$FILE" ] || die "File not found."
+
+BASE=$(basename "$FILE")
+LOG=$(mktemp "${TMPDIR:-$PREFIX_DIR/tmp}/appinst.XXXXXX.log")
+
+case "$BASE" in
+    *.deb)
+        (
+        "$PROOT_BIN" login "$DISTRO" --bind "$FILE:/tmp/pkg.deb" -- bash -c '
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -y -q
+            apt-get install -y -q /tmp/pkg.deb || { dpkg -i /tmp/pkg.deb; apt-get -f install -y -q; }
+        ' > "$LOG" 2>&1
+        ) | zenity --progress --pulsate --auto-close --no-cancel \
+                --title="Installing $BASE" \
+                --text="Installing .deb inside the Linux backend..." 2>/dev/null
+        ;;
+    *.AppImage|*.appimage)
+        NAME=$(printf '%s' "$BASE" | sed 's/\.[Aa]pp[Ii]mage$//')
+        (
+        "$PROOT_BIN" login "$DISTRO" --bind "$FILE:/tmp/app.AppImage" -- \
+            env APPNAME="$NAME" bash -c '
+            set -e
+            APPDIR="/opt/appimages/$APPNAME"
+            rm -rf "$APPDIR"; mkdir -p "$APPDIR"; cd "$APPDIR"
+            cp /tmp/app.AppImage ./app.AppImage; chmod +x ./app.AppImage
+            # AppImages need FUSE (absent under proot) -> extract instead.
+            ./app.AppImage --appimage-extract >/dev/null 2>&1
+            RUN="$APPDIR/squashfs-root/AppRun"
+            ICON=$(find "$APPDIR/squashfs-root" -maxdepth 2 -iname "*.png" | head -n1)
+            mkdir -p /usr/share/applications
+            printf "[Desktop Entry]\nName=%s\nExec=%s %%U\nIcon=%s\nType=Application\nTerminal=false\n" \
+                "$APPNAME" "$RUN" "$ICON" > "/usr/share/applications/$APPNAME.desktop"
+        ' > "$LOG" 2>&1
+        ) | zenity --progress --pulsate --auto-close --no-cancel \
+                --title="Installing $BASE" \
+                --text="Extracting AppImage inside the Linux backend..." 2>/dev/null
+        ;;
+    *)
+        die "Unsupported file. Choose a .deb or .AppImage."
+        ;;
+esac
+
+# Refresh the XFCE menu bridge so the new app shows up.
+[ -f "$HOME/proot-menu-sync.sh" ] && bash "$HOME/proot-menu-sync.sh" >/dev/null 2>&1
+
+if tail -n 25 "$LOG" 2>/dev/null | grep -qiE 'error|no installation candidate|unable to locate|failed|cannot'; then
+    zenity --text-info --width=600 --height=380 \
+        --title="Install finished (with warnings)" --filename="$LOG" 2>/dev/null
+else
+    zenity --info --width=360 \
+        --text="$BASE installed. Look for it in the application menu." 2>/dev/null
+fi
+rm -f "$LOG"
+APPINSTEOF
+    chmod +x ~/app-installer.sh
+    echo -e "  [+] Created ~/app-installer.sh (visual .deb/AppImage installer)"
 
     # ---- proot-menu-sync.sh (v5 — embedded) ----
     cat > ~/proot-menu-sync.sh << 'SYNCEOF'
@@ -1199,12 +1260,12 @@ step_shortcuts() {
     echo ""
     mkdir -p ~/Desktop
 
-    cat > ~/Desktop/Helium.desktop << 'EOF'
+    cat > ~/Desktop/Chromium.desktop << 'EOF'
 [Desktop Entry]
-Name=Helium
-Comment=Helium browser (by imputnet), runs inside the Linux container
-Exec=bash /root/helium.sh
-Icon=web-browser
+Name=Chromium
+Comment=Chromium browser (native) with uBlock Origin
+Exec=chromium --no-sandbox --ozone-platform-hint=auto %U
+Icon=chromium
 Type=Application
 Terminal=false
 EOF
@@ -1230,18 +1291,18 @@ Icon=utilities-terminal
 Type=Application
 EOF
 
-    cat > ~/Desktop/Proot.desktop << EOF
+    cat > ~/Desktop/Install-App.desktop << 'EOF'
 [Desktop Entry]
-Name=Linux Container
-Comment=Open Proot Shell with GPU support
-Exec=${term_cmd} -e "bash /root/start-proot.sh"
-Icon=system-run
+Name=Install App (.deb / AppImage)
+Comment=Install a Linux .deb or AppImage into the menu
+Exec=bash /data/data/com.termux/files/home/app-installer.sh
+Icon=system-software-install
 Type=Application
 Terminal=false
 EOF
 
     chmod +x ~/Desktop/*.desktop 2>/dev/null
-    echo -e "  [+] Shortcuts: Helium, Files, Terminal, Proot"
+    echo -e "  [+] Shortcuts: Chromium, Files, Terminal, Install App"
 }
 
 # ============== VNC (OPTIONAL — asked at end) ==============
@@ -1349,10 +1410,10 @@ COMPLETE
     echo -e "${WHITE}[*] P-noroot linux (${DE_NAME}) is ready.${NC}"
     echo ""
     echo -e "${CYAN}[*] Installed:${NC}"
-    echo "    - Helium browser (by imputnet), Git, Python 3"
+    echo "    - Chromium (native) + uBlock Origin, Git, Python 3"
     echo "    - GPU Acceleration (Turnip/Zink)"
-    echo "    - Proot Linux Container + App Bridge"
-    echo "    - Modern Dark XFCE Theme (Adwaita + Dracula terminal)"
+    echo "    - Visual .deb/AppImage installer (hidden Proot backend)"
+    echo "    - Modern flat Windows 11-style XFCE Theme (Fluent + Dracula terminal)"
     if [ "$STORAGE_MODE" = "sd" ]; then
         echo "    - Storage: Linux container on SD card ($SD_CARD_ID)"
     else
@@ -1372,13 +1433,13 @@ COMPLETE
         echo -e "    ${WHITE}bash ~/start-vnc.sh${NC}  → 127.0.0.1:5901"
         echo ""
     fi
-    echo -e "  ${GREEN}Helium browser:${NC}"
-    echo -e "    ${WHITE}bash ~/helium.sh${NC}"
+    echo -e "  ${GREEN}Chromium browser (with uBlock Origin):${NC}"
+    echo -e "    ${WHITE}bash ~/chromium.sh${NC}"
     echo ""
-    echo -e "  ${GREEN}Proot Linux shell:${NC}"
-    echo -e "    ${WHITE}bash ~/start-proot.sh${NC}"
+    echo -e "  ${GREEN}Install a .deb / AppImage (visual):${NC}"
+    echo -e "    ${WHITE}bash ~/app-installer.sh${NC}"
     echo ""
-    echo -e "  ${GREEN}Install proot app → sync to XFCE menu:${NC}"
+    echo -e "  ${GREEN}Re-sync installed apps → XFCE menu:${NC}"
     echo -e "    ${WHITE}bash ~/proot-menu-sync.sh${NC}"
     echo ""
     echo -e "  ${GREEN}Stop everything:${NC}"

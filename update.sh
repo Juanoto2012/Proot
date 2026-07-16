@@ -4,8 +4,8 @@
 #  Pulls the latest setup script and re-applies it WITHOUT
 #  wiping your config: it keeps your XFCE theme, wallpaper,
 #  VNC setup, Proot data, username and SD-card storage choice.
-#  It refreshes packages, reinstalls/updates Helium, and
-#  regenerates the helper scripts (start-x11.sh, helium.sh,
+#  It refreshes packages and regenerates the helper scripts
+#  (start-x11.sh, chromium.sh, app-installer.sh,
 #  proot-menu-sync.sh, stop-linux.sh, update.sh).
 # ============================================================
 set -u
@@ -27,7 +27,8 @@ mkdir -p "$STATE_DIR" "$BACKUP_DIR"
 echo -e "${GREEN}[*] Backing up your config to:${NC}"
 echo -e "    $BACKUP_DIR"
 for item in .config/xfce4 .config/linux-wallpaper.jpg .config/linux-gpu.sh \
-            .vnc start-x11.sh start-vnc.sh start-proot.sh helium.sh \
+            .vnc start-x11.sh start-vnc.sh start-proot.sh \
+            chromium.sh helium.sh app-installer.sh \
             proot-menu-sync.sh stop-linux.sh update.sh Desktop; do
     if [ -e "$HOME/$item" ]; then
         mkdir -p "$BACKUP_DIR/$(dirname "$item")"
