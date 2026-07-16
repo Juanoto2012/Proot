@@ -1,15 +1,20 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #######################################################
-#  Termux Linux Setup Script
+#  P-noroot linux  —  Setup Script
+#
+#  A light, usable, no-root Linux desktop for Android.
 #
 #  Features:
-#  - XFCE4 / LXQt / MATE / KDE Desktop
+#  - XFCE4 desktop (lightweight, fast)
 #  - Smart GPU acceleration (Turnip/Zink)
 #  - Termux-X11 display + optional VNC
 #  - Modern dark XFCE theme + auto wallpaper
-#  - Proot Linux container (Ubuntu/Debian/Kali)
+#  - Proot Linux container (Ubuntu)
+#  - Helium browser (by imputnet) preinstalled
 #  - Proot App Bridge (apt installs appear in XFCE menu)
+#  - Optional: store the Linux container on an SD card
 #  - Python & Web Dev environment
+#  - Everything lives inside Termux's private folder by default
 #######################################################
 
 # ============== CONFIGURATION ==============
@@ -19,6 +24,14 @@ DE_CHOICE="1"
 DE_NAME="XFCE4"
 VNC_ENABLED=false
 SETUP_USERNAME="user"
+
+# ---- Storage ----
+# By default everything lives inside Termux's private folder ($PREFIX).
+# The user may optionally relocate the (large) Proot container to an SD card.
+TERMUX_PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
+STORAGE_MODE="internal"     # internal | sd
+SD_CARD_ID=""               # e.g. 1A2B-3C4D (only when STORAGE_MODE=sd)
+PROOT_SD_BASE=""            # e.g. /storage/1A2B-3C4D/p-noroot-linux
 
 # Wallpaper URL — Ubuntu 4K wallpaper (set by user)
 WALLPAPER_URL="https://wallpapercave.com/download/ubuntu-4k-wallpapers-wp8303186"
@@ -88,8 +101,9 @@ show_banner() {
     cat << 'BANNER'
     ╔══════════════════════════════════════════╗
     ║                                          ║
-    ║       Termux Linux Setup Script          ║
+    ║            P-noroot  linux               ║
     ║       X11 + Proot + Modern XFCE          ║
+    ║          light · usable · chingon        ║
     ║                                          ║
     ╚══════════════════════════════════════════╝
 BANNER
@@ -154,6 +168,115 @@ setup_environment() {
     # ---- Username ----
     SETUP_USERNAME="root"
     echo -e "  ${GREEN}[+] Proot User set to: ${SETUP_USERNAME} (Default)${NC}"
+    sleep 1
+}
+
+# ============== STORAGE SELECTION (SD card) ==============
+# By default the whole setup lives in Termux's private folder ($PREFIX).
+# The Proot container is by far the biggest part (several GB once you install
+# apps). On phones with little internal storage the user can move it to an SD
+# card. We ask, and if they say yes we list the SD card IDs and let them pick.
+setup_storage() {
+    echo ""
+    echo -e "${YELLOW}============================================================${NC}"
+    echo -e "${WHITE}  STORAGE: where should the Linux container live?${NC}"
+    echo -e "${YELLOW}============================================================${NC}"
+    echo ""
+    echo -e "  By default everything is stored in Termux's private folder"
+    echo -e "  (internal storage). The Proot Linux container can grow to several"
+    echo -e "  GB, so you may prefer to keep it on an SD card instead."
+    echo ""
+    read -p "  Store the Linux container on an SD card? (y/N): " SD_ANSWER
+    SD_ANSWER=${SD_ANSWER:-N}
+
+    if [[ ! "$SD_ANSWER" =~ ^[Yy]$ ]]; then
+        STORAGE_MODE="internal"
+        echo -e "  ${GREEN}[+] Using internal storage (Termux private folder).${NC}"
+        return 0
+    fi
+
+    # Make sure Termux can see external storage.
+    if [ ! -d /storage ]; then
+        echo -e "  ${YELLOW}[!] /storage not accessible. Run 'termux-setup-storage' and grant${NC}"
+        echo -e "  ${YELLOW}    permission, then re-run. Falling back to internal storage.${NC}"
+        STORAGE_MODE="internal"
+        return 0
+    fi
+
+    # SD cards mount as /storage/XXXX-XXXX. Exclude the internal emulated ones.
+    local ids=()
+    local entry
+    for entry in /storage/*; do
+        [ -d "$entry" ] || continue
+        local id
+        id=$(basename "$entry")
+        case "$id" in
+            emulated|self|sdcard0|"") continue;;
+        esac
+        # Must be readable/writable to be useful.
+        [ -r "$entry" ] || continue
+        ids+=("$id")
+    done
+
+    if [ ${#ids[@]} -eq 0 ]; then
+        echo -e "  ${YELLOW}[!] No SD card detected under /storage.${NC}"
+        echo -e "  ${YELLOW}    Make sure a card is inserted and storage permission is granted${NC}"
+        echo -e "  ${YELLOW}    (termux-setup-storage). Falling back to internal storage.${NC}"
+        STORAGE_MODE="internal"
+        return 0
+    fi
+
+    echo ""
+    echo -e "  ${CYAN}Detected SD card ID(s):${NC}"
+    local i=1
+    for id in "${ids[@]}"; do
+        echo -e "    ${WHITE}${i}) ${id}${NC}"
+        i=$((i + 1))
+    done
+    echo ""
+
+    local sel
+    while true; do
+        read -p "  Select your SD card ID (1-${#ids[@]}) [Enter = internal]: " sel
+        if [ -z "$sel" ]; then
+            STORAGE_MODE="internal"
+            echo -e "  ${GREEN}[+] Using internal storage (Termux private folder).${NC}"
+            return 0
+        fi
+        if [[ "$sel" =~ ^[0-9]+$ ]] && [ "$sel" -ge 1 ] && [ "$sel" -le ${#ids[@]} ]; then
+            break
+        fi
+        echo -e "  ${YELLOW}Please enter a number between 1 and ${#ids[@]}.${NC}"
+    done
+
+    SD_CARD_ID="${ids[$((sel - 1))]}"
+    PROOT_SD_BASE="/storage/${SD_CARD_ID}/p-noroot-linux"
+
+    # Verify we can actually write there before committing.
+    if ! mkdir -p "$PROOT_SD_BASE/installed-rootfs" 2>/dev/null; then
+        echo -e "  ${YELLOW}[!] Cannot write to ${PROOT_SD_BASE}.${NC}"
+        echo -e "  ${YELLOW}    The card may be read-only for apps. Falling back to internal.${NC}"
+        STORAGE_MODE="internal"
+        SD_CARD_ID=""
+        PROOT_SD_BASE=""
+        return 0
+    fi
+
+    # Point proot-distro's installed-rootfs dir at the SD card via a symlink.
+    # proot-distro already logs in with --link2symlink, so it tolerates the
+    # symlink/permission limitations of FAT/exFAT SD cards.
+    local pd_rootfs="${TERMUX_PREFIX}/var/lib/proot-distro/installed-rootfs"
+    mkdir -p "$(dirname "$pd_rootfs")"
+    if [ -e "$pd_rootfs" ] && [ ! -L "$pd_rootfs" ]; then
+        # Nothing important yet (install runs later) — clear it so we can link.
+        rm -rf "$pd_rootfs" 2>/dev/null || true
+    fi
+    ln -sfn "$PROOT_SD_BASE/installed-rootfs" "$pd_rootfs"
+
+    STORAGE_MODE="sd"
+    echo -e "  ${GREEN}[+] Linux container will be stored on SD card:${NC}"
+    echo -e "      ${WHITE}${PROOT_SD_BASE}/installed-rootfs${NC}"
+    echo -e "  ${GRAY}    (scripts, config and menu still live in Termux's private folder)${NC}"
     sleep 1
 }
 
@@ -241,7 +364,8 @@ step_apps() {
     update_progress
     echo -e "${PURPLE}[Step ${CURRENT_STEP}/${TOTAL_STEPS}] Installing Apps...${NC}"
     echo ""
-    install_pkg "firefox" "Firefox Browser"
+    # Helium browser is installed later inside the Proot container (step_proot).
+    # Keep this list lean so the base install stays light.
     install_pkg "git" "Git"
     install_pkg "wget" "Wget"
     install_pkg "curl" "cURL"
@@ -250,7 +374,6 @@ step_apps() {
     install_pkg "openssh" "OpenSSH"
     install_pkg "neofetch" "Neofetch"
     install_pkg "htop" "htop"
-    install_pkg "code-oss" "VS Code (from TUR)"
 }
 
 # ============== STEP 8: PYTHON ==============
@@ -301,7 +424,9 @@ step_proot() {
     spinner $! "Downloading ${PROOT_LABEL} rootfs (may take a while)..."
 
     echo -e "  [*] Bootstrapping ${PROOT_LABEL}..."
-    proot-distro login "$PROOT_DISTRO" -- bash -c "
+    # PROOT_NO_SECCOMP=1 keeps proot working on old Android kernels whose
+    # seccomp filters break syscall emulation.
+    PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y -q > /dev/null 2>&1
         apt-get install -y -q --no-install-recommends \
@@ -314,7 +439,7 @@ step_proot() {
 
     # ---- Create named user with working sudo ----
     echo -e "  [*] Creating proot user: ${SETUP_USERNAME} (with sudo)..."
-    proot-distro login "$PROOT_DISTRO" -- bash -c "
+    PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c "
         # Create user if not exists
         id '$SETUP_USERNAME' > /dev/null 2>&1 || \
             useradd -m -s /bin/bash '$SETUP_USERNAME'
@@ -342,6 +467,31 @@ step_proot() {
     " 2>/dev/null || true
     echo -e "  [+] Proot user '${SETUP_USERNAME}' created with passwordless sudo"
 
+    # ---- Helium browser (by imputnet) ----
+    # Helium is a Chromium-based browser and is not in the Termux/TUR repos, so
+    # we install the official arm64 .deb inside the Ubuntu Proot container.
+    echo -e "  [*] Installing Helium browser (by imputnet)..."
+    (PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c '
+        export DEBIAN_FRONTEND=noninteractive
+        cd /tmp || exit 0
+        # Resolve the latest arm64 .deb, fall back to a known-good pinned build.
+        DEB_URL=$(curl -fsSL https://api.github.com/repos/imputnet/helium-linux/releases/latest 2>/dev/null \
+            | grep -o "https://[^\"]*arm64\.deb" | head -1)
+        [ -z "$DEB_URL" ] && DEB_URL="https://github.com/imputnet/helium-linux/releases/download/0.14.6.1/helium-bin_0.14.6.1-1_arm64.deb"
+        apt-get update -y -q > /dev/null 2>&1
+        if wget -q -O helium.deb "$DEB_URL"; then
+            apt-get install -y -q ./helium.deb > /dev/null 2>&1 \
+                || { dpkg -i helium.deb > /dev/null 2>&1; apt-get -f install -y -q > /dev/null 2>&1; }
+        fi
+        rm -f helium.deb
+    ' 2>/dev/null) &
+    spinner $! "Downloading & installing Helium browser..."
+    if PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c 'command -v helium > /dev/null 2>&1'; then
+        echo -e "  [+] Helium browser installed"
+    else
+        echo -e "  ${YELLOW}[!] Helium install could not be confirmed; you can retry later inside proot.${NC}"
+    fi
+
     PROOT_BIN="/data/data/com.termux/files/usr/bin/proot-distro"
     TERMUX_VK_ICD="/data/data/com.termux/files/usr/share/vulkan/icd.d"
     TERMUX_LIB="/data/data/com.termux/files/usr/lib"
@@ -352,6 +502,8 @@ step_proot() {
 PROOT_DISTRO="$PROOT_DISTRO"
 PROOT_LABEL="$PROOT_LABEL"
 TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+# Keep proot happy on old Android kernels (seccomp emulation issues).
+export PROOT_NO_SECCOMP=1
 
 echo ""
 echo "============================================="
@@ -394,15 +546,49 @@ PROOTEOF
     chmod +x ~/start-proot.sh
     echo -e "  [+] Created ~/start-proot.sh"
 
-    # ---- proot-menu-sync.sh (v3 — embedded) ----
+    # ---- helium.sh (browser launcher) ----
+    # Launches Helium from inside the Proot container on the shared X11 display.
+    # --no-sandbox is required because the container runs Chromium as root.
+    cat > ~/helium.sh << HELIUMEOF
+#!/data/data/com.termux/files/usr/bin/bash
+PROOT_DISTRO="$PROOT_DISTRO"
+PROOT_BIN="$PROOT_BIN"
+TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
+export PROOT_NO_SECCOMP=1
+
+BINDS=""
+X11_DIR="\$TERMUX_TMP/.X11-unix"
+[ -d "\$X11_DIR" ]     && BINDS="\$BINDS --bind \$X11_DIR:/tmp/.X11-unix"
+[ -d "/dev/dri" ]      && BINDS="\$BINDS --bind /dev/dri:/dev/dri"
+[ -e "/dev/kgsl-3d0" ] && BINDS="\$BINDS --bind /dev/kgsl-3d0:/dev/kgsl-3d0"
+
+\$PROOT_BIN login "\$PROOT_DISTRO" \$BINDS -- /bin/bash -c '
+export DISPLAY=:0
+export XDG_RUNTIME_DIR=/tmp
+export MESA_NO_ERROR=1
+dbus-run-session helium --no-sandbox "\$@"
+' helium "\$@"
+HELIUMEOF
+    chmod +x ~/helium.sh
+    echo -e "  [+] Created ~/helium.sh (Helium browser launcher)"
+
+    # ---- proot-menu-sync.sh (v4 — embedded) ----
     cat > ~/proot-menu-sync.sh << 'SYNCEOF'
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================
-#  Proot App Menu Bridge v3
+#  Proot App Menu Bridge v4
 #  Syncs proot .desktop files into native XFCE menu.
 #  Fixes: $TMPDIR log path, runtime X11 bind, dbus-run-session,
 #         Blender libvulkan auto-detect, LibreOffice --norestore
+#  v4: old-Android compatibility
+#      - PROOT_NO_SECCOMP=1 (works on old kernels)
+#      - busybox-safe grep (-E instead of \|) and pgrep guards
+#      - Chromium/Helium apps get --no-sandbox automatically
 # ============================================================
+
+# Keep proot working on old Android kernels whose seccomp filters
+# break syscall emulation. Must be exported before any proot login.
+export PROOT_NO_SECCOMP=1
 
 PROOT_DISTRO="${1:-ubuntu}"
 PROOT_BIN="/data/data/com.termux/files/usr/bin/proot-distro"
@@ -430,8 +616,8 @@ mkdir -p "$BRIDGE_DIR" "$WRAPPER_DIR"
 HAS_GPU="software"
 [ -d "/dev/dri" ] && HAS_GPU="zink"
 
-# Ensure dbus-x11 in proot
-if ! "$PROOT_BIN" login "$PROOT_DISTRO" -- which dbus-run-session > /dev/null 2>&1; then
+# Ensure dbus-x11 in proot (use bash -c so it works even without `which`)
+if ! "$PROOT_BIN" login "$PROOT_DISTRO" -- /bin/bash -c 'command -v dbus-run-session' > /dev/null 2>&1; then
     echo "[*] Installing dbus-x11 in proot..."
     "$PROOT_BIN" login "$PROOT_DISTRO" -- apt-get install -y -q dbus-x11 > /dev/null 2>&1
 fi
@@ -466,8 +652,12 @@ for desktop_file in "$PROOT_APPS"/*.desktop; do
     APP_CMD="$CLEAN_EXEC"
     EXTRA_ENV=""
 
-    echo "$appname" | grep -qi "libreoffice\|soffice" && \
+    echo "$appname" | grep -qiE 'libreoffice|soffice' && \
         APP_CMD="$CLEAN_EXEC --norestore --nofirststartwizard"
+
+    # Chromium-based browsers run as root inside proot and need --no-sandbox.
+    echo "$appname" | grep -qiE 'helium|chrome|chromium|brave|electron|vivaldi|opera' && \
+        APP_CMD="$CLEAN_EXEC --no-sandbox"
 
     if echo "$appname" | grep -qi "blender"; then
         APP_CMD="$CLEAN_EXEC"
@@ -485,6 +675,7 @@ for desktop_file in "$PROOT_APPS"/*.desktop; do
 #!/data/data/com.termux/files/usr/bin/bash
 PROOT_BIN="$PROOT_BIN"
 PROOT_DISTRO="$PROOT_DISTRO"
+export PROOT_NO_SECCOMP=1
 TERMUX_TMP="\${TMPDIR:-/data/data/com.termux/files/usr/tmp}"
 LOG="\$TERMUX_TMP/proot-${appname}.log"
 
@@ -531,8 +722,15 @@ echo "[+] Bridge: $SYNCED synced, $REMOVED removed."
 echo "    Logs: \$TERMUX_TMP/proot-<appname>.log"
 echo "    Re-run after new installs: bash ~/proot-menu-sync.sh"
 
-pgrep -x "xfce4-panel" > /dev/null 2>&1 && xfce4-panel --restart > /dev/null 2>&1 &
-pgrep -x "xfdesktop"   > /dev/null 2>&1 && { sleep 1; xfdesktop --reload > /dev/null 2>&1 & }
+# Refresh the panel/desktop so new entries show up (best-effort; old busybox
+# pgrep may lack -x, so fall back to a plain match).
+if command -v pgrep > /dev/null 2>&1; then
+    pgrep xfce4-panel > /dev/null 2>&1 && xfce4-panel --restart > /dev/null 2>&1 &
+    pgrep xfdesktop   > /dev/null 2>&1 && { sleep 1; xfdesktop --reload > /dev/null 2>&1 & }
+else
+    xfce4-panel --restart > /dev/null 2>&1 &
+    { sleep 1; xfdesktop --reload > /dev/null 2>&1 & }
+fi
 SYNCEOF
     chmod +x ~/proot-menu-sync.sh
     echo -e "  [+] Created ~/proot-menu-sync.sh"
@@ -884,12 +1082,14 @@ step_shortcuts() {
     echo ""
     mkdir -p ~/Desktop
 
-    cat > ~/Desktop/Firefox.desktop << 'EOF'
+    cat > ~/Desktop/Helium.desktop << 'EOF'
 [Desktop Entry]
-Name=Firefox
-Exec=firefox
-Icon=firefox
+Name=Helium
+Comment=Helium browser (by imputnet), runs inside the Linux container
+Exec=bash /root/helium.sh
+Icon=web-browser
 Type=Application
+Terminal=false
 EOF
 
     cat > ~/Desktop/Files.desktop << 'EOF'
@@ -924,7 +1124,7 @@ Terminal=false
 EOF
 
     chmod +x ~/Desktop/*.desktop 2>/dev/null
-    echo -e "  [+] Shortcuts: Firefox, Files, Terminal, Proot"
+    echo -e "  [+] Shortcuts: Helium, Files, Terminal, Proot"
 }
 
 # ============== VNC (OPTIONAL — asked at end) ==============
@@ -1029,13 +1229,18 @@ show_completion() {
 COMPLETE
     echo -e "${NC}"
 
-    echo -e "${WHITE}[*] ${DE_NAME} desktop is ready.${NC}"
+    echo -e "${WHITE}[*] P-noroot linux (${DE_NAME}) is ready.${NC}"
     echo ""
     echo -e "${CYAN}[*] Installed:${NC}"
-    echo "    - Firefox, Git, Python 3"
+    echo "    - Helium browser (by imputnet), Git, Python 3"
     echo "    - GPU Acceleration (Turnip/Zink)"
     echo "    - Proot Linux Container + App Bridge"
     echo "    - Modern Dark XFCE Theme (Adwaita + Dracula terminal)"
+    if [ "$STORAGE_MODE" = "sd" ]; then
+        echo "    - Storage: Linux container on SD card ($SD_CARD_ID)"
+    else
+        echo "    - Storage: Termux private folder (internal)"
+    fi
     echo ""
     echo -e "${YELLOW}============================================================${NC}"
     echo -e "${WHITE}  HOW TO START:${NC}"
@@ -1050,6 +1255,9 @@ COMPLETE
         echo -e "    ${WHITE}bash ~/start-vnc.sh${NC}  → 127.0.0.1:5901"
         echo ""
     fi
+    echo -e "  ${GREEN}Helium browser:${NC}"
+    echo -e "    ${WHITE}bash ~/helium.sh${NC}"
+    echo ""
     echo -e "  ${GREEN}Proot Linux shell:${NC}"
     echo -e "    ${WHITE}bash ~/start-proot.sh${NC}"
     echo ""
@@ -1074,6 +1282,7 @@ COMPLETE
 main() {
     show_banner
     setup_environment
+    setup_storage   # ask about SD-card storage before installing the container
 
     step_update
     step_repos

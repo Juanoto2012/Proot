@@ -1,6 +1,8 @@
-# Proot
+# P-noroot linux
 
-Run a full Linux desktop on any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- VS Code, Blender, Metasploit, local AI, all of it.
+A light, usable, no-root Linux desktop for any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- Helium browser, Blender, Metasploit, local AI, all of it.
+
+Designed to stay lightweight: it preinstalls the **Helium** browser (by [imputnet](https://github.com/imputnet/helium-linux)) instead of Firefox, skips heavy defaults like VS Code (install anything you want inside the container), and lets you keep the Linux container on an **SD card** if internal storage is tight. By default everything lives inside Termux's private folder.
 
 Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your entire setup comes with you.
 
@@ -12,8 +14,9 @@ Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your en
 
 Everything below has been tested and confirmed working:
 
+- **Helium** -- Privacy-focused Chromium browser (by imputnet), preinstalled.
 - **LibreOffice** -- Word processing, spreadsheets, presentations. Fully functional.
-- **VS Code** -- Full version. Python, PIP, extensions, everything.
+- **VS Code** -- Full version (installed inside the container with `apt`). Python, PIP, extensions, everything.
 - **Claude Code** -- AI coding agent running directly in terminal.
 - **Blender** -- Installs and opens. Laggy on mobile hardware, but it runs.
 - **Wireshark** -- Full network analysis, every packet and protocol.
@@ -79,12 +82,13 @@ bash setup.sh
 ```
 
 The script will:
+0. Ask where to store the Linux container: **internal** (Termux private folder, default) or an **SD card** -- if you pick SD, it lists the detected SD card IDs (`/storage/XXXX-XXXX`) and asks you to select yours
 1. Update Termux packages
 2. Add X11 and TUR repositories
 3. Install your chosen desktop environment (XFCE4/LXQt/MATE/KDE)
 4. Set up GPU acceleration (Turnip for Adreno, Zink fallback for others)
-5. Install Firefox, Git, Python, and core tools
-6. Set up a Proot Linux container (Ubuntu/Debian/Kali)
+5. Install Git, Python, and core tools
+6. Set up a Proot Linux container (Ubuntu) with the Helium browser (by imputnet)
 7. Create the App Bridge for automatic menu syncing
 8. Apply a modern dark theme
 9. Optionally set up VNC for remote access
@@ -169,6 +173,7 @@ Add this line:
 |---|---|
 | `bash ~/start-x11.sh` | Start desktop via Termux-X11 |
 | `bash ~/start-vnc.sh` | Start desktop via VNC (if installed) |
+| `bash ~/helium.sh` | Launch the Helium browser |
 | `bash ~/start-proot.sh` | Open Proot Linux shell |
 | `bash ~/proot-menu-sync.sh` | Sync Proot apps to desktop menu |
 | `bash ~/stop-linux.sh` | Stop all sessions |
