@@ -512,6 +512,7 @@ step_proot() {
             mesa-utils vulkan-tools \
             libgl1-mesa-glx libvulkan1 libgles2 \
             xfce4 xfce4-terminal dbus-x11 \
+            oxygen-icon-theme \
             sudo curl wget git htop nano > /dev/null 2>&1
     " 2>/dev/null || true
     echo -e "  [+] ${PROOT_LABEL} ready."
@@ -960,7 +961,7 @@ step_theme_xfce() {
 <channel name="xsettings" version="1.0">
   <property name="Net" type="empty">
     <property name="ThemeName" type="string" value="Adwaita-dark"/>
-    <property name="IconThemeName" type="string" value="Adwaita"/>
+    <property name="IconThemeName" type="string" value="oxygen"/>
   </property>
   <property name="Xft" type="empty">
     <property name="DPI" type="int" value="96"/>
@@ -986,13 +987,13 @@ XSEOF
   <property name="general" type="empty">
     <property name="theme" type="string" value="Default-xhdpi"/>
     <property name="title_font" type="string" value="Sans Bold 10"/>
-    <property name="use_compositing" type="bool" value="true"/>
-    <property name="frame_opacity" type="int" value="95"/>
-    <property name="inactive_opacity" type="int" value="90"/>
-    <property name="popup_opacity" type="int" value="95"/>
-    <property name="show_frame_shadow" type="bool" value="true"/>
-    <property name="show_popup_shadow" type="bool" value="true"/>
-    <property name="shadow_opacity" type="int" value="50"/>
+    <property name="use_compositing" type="bool" value="false"/>
+    <property name="frame_opacity" type="int" value="100"/>
+    <property name="inactive_opacity" type="int" value="100"/>
+    <property name="popup_opacity" type="int" value="100"/>
+    <property name="show_frame_shadow" type="bool" value="false"/>
+    <property name="show_popup_shadow" type="bool" value="false"/>
+    <property name="shadow_opacity" type="int" value="0"/>
     <property name="button_layout" type="string" value="O|SHMC"/>
     <property name="snap_to_windows" type="bool" value="true"/>
     <property name="snap_to_border" type="bool" value="true"/>
@@ -1074,8 +1075,9 @@ WALLPAPER="$HOME/.config/linux-wallpaper.jpg"
 
 sleep 4  # Wait for xfconfd + panel to be ready
 
-# ---- Dark Adwaita theme ----
+# ---- Dark Adwaita theme + Oxygen icons ----
 xfconf-query -c xsettings -p /Net/ThemeName -s "Adwaita-dark"
+xfconf-query -c xsettings -p /Net/IconThemeName -s "oxygen"
 xfconf-query -c xfwm4 -p /general/theme -s "Default-xhdpi"
 
 # ---- Panel: Move panel-1 to bottom, resize ----
@@ -1107,9 +1109,9 @@ if [ -f "$WALLPAPER" ]; then
     xfdesktop --reload 2>/dev/null &
 fi
 
-# ---- Compositing tuning ----
-xfconf-query -c xfwm4 -p /general/use_compositing -s true 2>/dev/null || true
-xfconf-query -c xfwm4 -p /general/frame_opacity -t int -s 95 2>/dev/null || true
+# ---- Compositing OFF (saves RAM/CPU on low-end and old devices) ----
+xfconf-query -c xfwm4 -p /general/use_compositing -s false 2>/dev/null || true
+xfconf-query -c xfwm4 -p /general/frame_opacity -t int -s 100 2>/dev/null || true
 
 # ---- Remove this autostart so it never runs again ----
 rm -f "$HOME/.config/autostart/xfce-first-run.desktop"
@@ -1166,7 +1168,8 @@ AREOF
         echo -e "      Desktop will use XFCE default background."
     fi
 
-    echo -e "  [+] XFCE dark theme configured (Adwaita-dark + Dracula terminal)"
+    echo -e "  [+] XFCE theme: Adwaita-dark + Oxygen icons + Dracula terminal"
+    echo -e "  [+] Compositing OFF for lower RAM/CPU usage (better on old devices)"
     echo -e "  [+] First-run script will configure panels on first launch"
 }
 
