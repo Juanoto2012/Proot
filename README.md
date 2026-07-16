@@ -1,4 +1,4 @@
-# DroidDesk
+# Proot
 
 Run a full Linux desktop on any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- VS Code, Blender, Metasploit, local AI, all of it.
 
@@ -30,15 +30,6 @@ The setup script installs a full desktop (XFCE4/LXQt/MATE/KDE) inside Termux usi
 
 The automatic menu sync scans what you install inside Proot and adds it directly to your desktop app menu. No need to enter the container every time.
 
-## DroidDesk App (Standalone)
-
-DroidDesk is also available as a standalone Android application that completely automates this process without requiring Termux. It bundles a containerized Linux root filesystem and uses an integrated VNC client to render the desktop locally. 
-
-- **Automated Setup:** No scripts required. The app handles PRoot execution, filesystem downloads, and desktop configuration automatically.
-- **Out-of-the-box Execution:** Automated binary patching allows complex applications like VS Code to run flawlessly on unrooted devices.
-- **Limitations:** The standalone app currently relies entirely on `llvmpipe` (CPU-based software rendering) because Android's hardware isolation restricts direct `/dev/dri/` GPU access. While highly optimized, graphical applications are bound by your CPU's capabilities.
-
-Download the latest release APK from the Releases tab and sideload it to begin.
 
 ## Requirements
 
@@ -83,7 +74,7 @@ Install it on your phone. This is the display server that renders the desktop.
 Open Termux and run:
 
 ```bash
-curl -sL https://raw.githubusercontent.com/orailnoor/DroidDesk/main/termux-linux-setup.sh -o setup.sh
+curl -sL https://raw.githubusercontent.com/Juanoto2012/Proot/main/termux-linux-setup.sh -o setup.sh
 bash setup.sh
 ```
 
