@@ -1,6 +1,6 @@
 #!/data/data/com.termux/files/usr/bin/bash
 #######################################################
-#  P-noroot linux  —  Setup Script
+#  CelerOS 12  —  Setup Script
 #
 #  A light, usable, no-root Linux desktop for Android.
 #
@@ -18,6 +18,12 @@
 #######################################################
 
 # ============== CONFIGURATION ==============
+# ---- Branding / version ----
+# Bump CELEROS_BUILD on every change; the "What's New" dialog shows it once
+# per new build. Format: major.minor.patch (the build number).
+CELEROS_NAME="CelerOS 12"
+CELEROS_BUILD="12.5.9"
+
 TOTAL_STEPS=12
 CURRENT_STEP=0
 DE_CHOICE="1"
@@ -34,11 +40,12 @@ SD_CARD_ID=""               # e.g. 1A2B-3C4D (only when STORAGE_MODE=sd)
 PROOT_SD_BASE=""            # e.g. /storage/1A2B-3C4D/p-noroot-linux
 
 # ---- Update mode ----
-# When run by update.sh (PNOROOT_UPDATE=1) the script refreshes packages and
+# When run by update.sh (CELEROS_UPDATE=1) the script refreshes packages and
 # regenerates helper scripts but PRESERVES the user's config: it skips the
 # XFCE theme/wallpaper and VNC steps, doesn't re-prompt for storage, and won't
 # re-download the Proot rootfs if it's already installed.
-UPDATE_MODE="${PNOROOT_UPDATE:-0}"
+# PNOROOT_UPDATE is still honored for backward compatibility.
+UPDATE_MODE="${CELEROS_UPDATE:-${PNOROOT_UPDATE:-0}}"
 
 # Wallpaper URL — Ubuntu 4K wallpaper (set by user)
 WALLPAPER_URL="https://wallpapercave.com/download/ubuntu-4k-wallpapers-wp8303186"
@@ -108,13 +115,14 @@ show_banner() {
     cat << 'BANNER'
     ╔══════════════════════════════════════════╗
     ║                                          ║
-    ║            P-noroot  linux               ║
+    ║                CelerOS 12                 ║
     ║       X11 + Proot + Modern XFCE          ║
     ║          light · usable · chingon        ║
     ║                                          ║
     ╚══════════════════════════════════════════╝
 BANNER
     echo -e "${NC}"
+    echo -e "${GRAY}                 build ${CELEROS_BUILD}${NC}"
     echo ""
 }
 
@@ -741,14 +749,26 @@ while :; do
         --text="Search for an app or package (name or keyword):" 2>/dev/null) || exit 0
     [ -z "$QUERY" ] && continue
 
-    RESULTS=$(apt-cache search "$QUERY" 2>/dev/null | sort -f | head -n 200)
-    if [ -z "$RESULTS" ]; then
+    # Search the Termux package index via `pkg search` (falls back to
+    # apt-cache if pkg is unavailable). Output is "name<TAB>description" rows.
+    if command -v pkg >/dev/null 2>&1; then
+        ROWS=$(pkg search "$QUERY" 2>/dev/null | awk '
+            /^[^[:space:]].*\// {
+                if (name != "") { print name "\t" desc }
+                split($1, a, "/"); name = a[1]; desc = ""; next
+            }
+            /^[[:space:]]/ { d = $0; sub(/^[[:space:]]+/, "", d); if (desc == "") desc = d }
+            END { if (name != "") { print name "\t" desc } }')
+    else
+        ROWS=$(apt-cache search "$QUERY" 2>/dev/null | sed -E 's/ - /\t/')
+    fi
+    ROWS=$(printf '%s\n' "$ROWS" | sort -f | head -n 200)
+    if [ -z "$ROWS" ]; then
         zenity --info --width=360 --text="No packages match \"$QUERY\"." 2>/dev/null
         continue
     fi
 
-    SEL=$(printf '%s\n' "$RESULTS" \
-        | sed -E 's/ - / \t/' \
+    SEL=$(printf '%s\n' "$ROWS" \
         | awk -F'\t' '{print $1; print $2}' \
         | zenity --list --width=700 --height=480 \
             --title="Results for \"$QUERY\"" \
@@ -771,6 +791,47 @@ CNREOF
     chmod +x ~/click-n-run.sh
     echo -e "  [+] Created ~/click-n-run.sh (Click n run app store)"
 
+    # ---- What's New: version file + changelog (bumped every build) ----
+    mkdir -p ~/.config/celeros
+    printf '%s\n' "$CELEROS_BUILD" > ~/.config/celeros/build
+    cat > ~/.config/celeros/whatsnew.txt << WNEOF
+${CELEROS_NAME}  —  build ${CELEROS_BUILD}
+
+What's New in this build:
+  • Rebranded to CelerOS 12 — it's a whole OS now.
+  • Click n run now searches with "pkg search <query>".
+  • update.sh regenerates every helper script on update.
+  • This "What's New" dialog shows up once whenever the build changes.
+
+Thanks for using CelerOS. Subscribe to orailnoor on YouTube.
+WNEOF
+    echo -e "  [+] Set version to build ${CELEROS_BUILD}"
+
+    # ---- whats-new.sh (system dialog, shown once per new build) ----
+    cat > ~/whats-new.sh << 'WNSHEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+export DISPLAY=:0
+DIR="$HOME/.config/celeros"
+CUR=$(cat "$DIR/build" 2>/dev/null)
+SEEN=$(cat "$DIR/seen" 2>/dev/null)
+[ -n "$CUR" ] || exit 0
+# --force shows it even if already seen (for manual runs).
+[ "$1" != "--force" ] && [ "$CUR" = "$SEEN" ] && exit 0
+command -v zenity >/dev/null 2>&1 || { echo "[!] zenity not installed."; exit 1; }
+if [ -f "$DIR/whatsnew.txt" ]; then
+    zenity --text-info --width=560 --height=420 \
+        --title="What's New — CelerOS (build $CUR)" \
+        --filename="$DIR/whatsnew.txt" 2>/dev/null
+else
+    zenity --info --width=380 \
+        --title="What's New — CelerOS" \
+        --text="CelerOS is now on build $CUR." 2>/dev/null
+fi
+printf '%s\n' "$CUR" > "$DIR/seen"
+WNSHEOF
+    chmod +x ~/whats-new.sh
+    echo -e "  [+] Created ~/whats-new.sh (What's New dialog)"
+
     # ---- anti-oom.sh (low-memory guard) ----
     # Non-rooted Android cannot enable swap/zram (they need root), so instead
     # of letting Android kill everything when RAM runs out, this frees memory
@@ -781,7 +842,7 @@ LOW_PCT="${ANTIOOM_LOW_PCT:-10}"
 CRIT_PCT="${ANTIOOM_CRIT_PCT:-5}"
 INTERVAL="${ANTIOOM_INTERVAL:-5}"
 
-notify(){ command -v notify-send >/dev/null 2>&1 && notify-send -u critical "P-noroot linux" "$1" 2>/dev/null; }
+notify(){ command -v notify-send >/dev/null 2>&1 && notify-send -u critical "CelerOS 12" "$1" 2>/dev/null; }
 
 # Never kill these (desktop/session critical).
 SAFE='init|login|bash|/sh|xfce4-session|xfwm4|xfsettingsd|xfce4-panel|xfdesktop|thunar|termux-x11|Xwayland|pulseaudio|dbus|anti-oom|proot-menu|start-x11'
@@ -837,7 +898,7 @@ PREFIX_DIR="${PREFIX:-/data/data/com.termux/files/usr}"
 RF="$PREFIX_DIR/var/lib/proot-distro/installed-rootfs"
 DISTRO="ubuntu"
 
-echo "== P-noroot linux — Proot diagnostic & repair =="
+echo "== CelerOS 12 — Proot diagnostic & repair =="
 echo "PREFIX=$PREFIX_DIR"
 echo "--- installed-rootfs ---"; ls -la "$RF" 2>&1
 echo "--- $DISTRO ---"; ls -la "$RF/$DISTRO" 2>&1 | head
@@ -1141,6 +1202,9 @@ export DISPLAY=:0
 if [ -f ~/anti-oom.sh ] && ! pgrep -f anti-oom.sh > /dev/null 2>&1; then
     nohup bash ~/anti-oom.sh > /dev/null 2>&1 &
 fi
+
+# Show the "What's New" dialog once when the build changes.
+[ -f ~/whats-new.sh ] && (sleep 4; bash ~/whats-new.sh) > /dev/null 2>&1 &
 
 echo "----------------------------------------------"
 echo "  [*] Open the Termux-X11 app to see desktop"
@@ -1486,8 +1550,18 @@ Type=Application
 Terminal=false
 EOF
 
+    cat > ~/Desktop/Whats-New.desktop << 'EOF'
+[Desktop Entry]
+Name=What's New
+Comment=CelerOS release notes and version
+Exec=bash /data/data/com.termux/files/home/whats-new.sh --force
+Icon=help-about
+Type=Application
+Terminal=false
+EOF
+
     chmod +x ~/Desktop/*.desktop 2>/dev/null
-    echo -e "  [+] Shortcuts: Chromium, Files, Terminal, Install App, Click n run"
+    echo -e "  [+] Shortcuts: Chromium, Files, Terminal, Install App, Click n run, What's New"
 }
 
 # ============== VNC (OPTIONAL — asked at end) ==============
@@ -1592,7 +1666,7 @@ show_completion() {
 COMPLETE
     echo -e "${NC}"
 
-    echo -e "${WHITE}[*] P-noroot linux (${DE_NAME}) is ready.${NC}"
+    echo -e "${WHITE}[*] ${CELEROS_NAME} (build ${CELEROS_BUILD}) is ready.${NC}"
     echo ""
     echo -e "${CYAN}[*] Installed:${NC}"
     echo "    - Chromium (native) + uBlock Origin, Git, Python 3"
@@ -1628,6 +1702,9 @@ COMPLETE
     echo ""
     echo -e "  ${GREEN}Click n run (visual Termux app store):${NC}"
     echo -e "    ${WHITE}bash ~/click-n-run.sh${NC}"
+    echo ""
+    echo -e "  ${GREEN}What's New (release notes / version):${NC}"
+    echo -e "    ${WHITE}bash ~/whats-new.sh --force${NC}"
     echo ""
     echo -e "  ${GREEN}Re-sync installed apps → XFCE menu:${NC}"
     echo -e "    ${WHITE}bash ~/proot-menu-sync.sh${NC}"

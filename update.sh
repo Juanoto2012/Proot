@@ -1,13 +1,13 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # ============================================================
-#  P-noroot linux — updater
+#  CelerOS 12 — updater
 #  Pulls the latest setup script and re-applies it WITHOUT
 #  wiping your config: it keeps your XFCE theme, wallpaper,
 #  VNC setup, Proot data, username and SD-card storage choice.
-#  It refreshes packages and regenerates the helper scripts
+#  It refreshes packages and regenerates every helper script
 #  (start-x11.sh, chromium.sh, app-installer.sh, click-n-run.sh,
-#  anti-oom.sh, fix-proot.sh, proot-menu-sync.sh, stop-linux.sh,
-#  update.sh).
+#  whats-new.sh, anti-oom.sh, fix-proot.sh, proot-menu-sync.sh,
+#  stop-linux.sh, update.sh).
 # ============================================================
 set -u
 
@@ -19,7 +19,7 @@ SETUP_LOCAL="$STATE_DIR/termux-linux-setup.sh"
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 echo -e "${CYAN}============================================================${NC}"
-echo -e "${CYAN}  P-noroot linux — updater${NC}"
+echo -e "${CYAN}  CelerOS 12 — updater${NC}"
 echo -e "${CYAN}============================================================${NC}"
 
 mkdir -p "$STATE_DIR" "$BACKUP_DIR"
@@ -27,10 +27,11 @@ mkdir -p "$STATE_DIR" "$BACKUP_DIR"
 # 1) Back up the user's config and current helper scripts, just in case.
 echo -e "${GREEN}[*] Backing up your config to:${NC}"
 echo -e "    $BACKUP_DIR"
-for item in .config/xfce4 .config/linux-wallpaper.jpg .config/linux-gpu.sh \
+for item in .config/xfce4 .config/celeros .config/linux-wallpaper.jpg \
+            .config/linux-gpu.sh .config/gtk-3.0 .gtkrc-2.0 \
             .vnc start-x11.sh start-vnc.sh start-proot.sh \
             chromium.sh helium.sh app-installer.sh click-n-run.sh \
-            anti-oom.sh fix-proot.sh \
+            whats-new.sh anti-oom.sh fix-proot.sh \
             proot-menu-sync.sh stop-linux.sh update.sh Desktop; do
     if [ -e "$HOME/$item" ]; then
         mkdir -p "$BACKUP_DIR/$(dirname "$item")"
@@ -46,11 +47,12 @@ if ! curl -fsSL "$RAW_BASE/termux-linux-setup.sh" -o "$SETUP_LOCAL"; then
 fi
 chmod +x "$SETUP_LOCAL"
 
-# 3) Re-apply in update mode: PNOROOT_UPDATE=1 makes the setup script skip the
+# 3) Re-apply in update mode: CELEROS_UPDATE=1 makes the setup script skip the
 #    theme/wallpaper and VNC steps, keep the existing storage choice, and skip
-#    re-downloading the Proot rootfs if it is already installed.
+#    re-downloading the Proot rootfs if it is already installed. All helper
+#    scripts (including any newly added ones) are regenerated.
 echo -e "${GREEN}[*] Applying update (your config is preserved)...${NC}"
-PNOROOT_UPDATE=1 bash "$SETUP_LOCAL"
+CELEROS_UPDATE=1 bash "$SETUP_LOCAL"
 
 echo ""
 echo -e "${GREEN}[+] Update complete.${NC}"

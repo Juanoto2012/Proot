@@ -1,4 +1,6 @@
-# P-noroot linux
+# CelerOS 12
+
+*(build 12.5.9 — formerly "P-noroot linux")*
 
 A light, usable, no-root Linux desktop for any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- native Chromium browser, Blender, Metasploit, local AI, all of it.
 
@@ -111,8 +113,15 @@ added to your menu automatically.
 
 For native Termux apps, use **Click n run** (desktop shortcut or
 `bash ~/click-n-run.sh`): a visual "app store" that searches the Termux package
-index and installs apps with a couple of clicks — GUI apps then show up in the
-menu automatically.
+index with `pkg search <query>` and installs apps with a couple of clicks — GUI
+apps then show up in the menu automatically.
+
+### What's New
+
+Each time the build number changes, a **What's New** dialog pops up once when the
+desktop starts, showing the current CelerOS build (currently **12.5.9**) and the
+changelog. You can reopen it any time from the **What's New** desktop shortcut or
+with `bash ~/whats-new.sh --force`.
 
 ### Memory & stability
 
@@ -187,7 +196,8 @@ Add this line:
 | `bash ~/start-vnc.sh` | Start desktop via VNC (if installed) |
 | `bash ~/chromium.sh` | Launch Chromium (with uBlock Origin) |
 | `bash ~/app-installer.sh` | Visual `.deb` / AppImage installer |
-| `bash ~/click-n-run.sh` | Click n run — visual Termux app store |
+| `bash ~/click-n-run.sh` | Click n run — visual Termux app store (`pkg search`) |
+| `bash ~/whats-new.sh --force` | Show the What's New / version dialog |
 | `bash ~/fix-proot.sh` | Diagnose / repair the Linux backend |
 | `bash ~/proot-menu-sync.sh` | Sync installed apps to desktop menu |
 | `bash ~/stop-linux.sh` | Stop all sessions |
