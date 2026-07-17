@@ -425,6 +425,7 @@ step_apps() {
     # .deb/AppImage installer.
     install_pkg "chromium" "Chromium browser (native)"
     install_pkg "zenity" "Zenity (installer dialogs)"
+    install_pkg "libnotify" "libnotify (desktop notifications)"
 
     # Force-install uBlock Origin (Lite, MV3 — required by modern Chromium)
     # via Chromium's managed policy so it ships preinstalled and enabled.
@@ -718,6 +719,151 @@ APPINSTEOF
     chmod +x ~/app-installer.sh
     echo -e "  [+] Created ~/app-installer.sh (visual .deb/AppImage installer)"
 
+    # ---- click-n-run.sh (visual Termux "app store") ----
+    # Search the Termux package index and install native apps with a GUI.
+    cat > ~/click-n-run.sh << 'CNREOF'
+#!/data/data/com.termux/files/usr/bin/bash
+export DISPLAY=:0
+command -v zenity >/dev/null 2>&1 || { echo "[!] zenity not installed."; exit 1; }
+
+while :; do
+    QUERY=$(zenity --entry --width=440 \
+        --title="Click n run — Termux App Store" \
+        --text="Search for an app or package (name or keyword):" 2>/dev/null) || exit 0
+    [ -z "$QUERY" ] && continue
+
+    RESULTS=$(apt-cache search "$QUERY" 2>/dev/null | sort -f | head -n 200)
+    if [ -z "$RESULTS" ]; then
+        zenity --info --width=360 --text="No packages match \"$QUERY\"." 2>/dev/null
+        continue
+    fi
+
+    SEL=$(printf '%s\n' "$RESULTS" \
+        | sed -E 's/ - / \t/' \
+        | awk -F'\t' '{print $1; print $2}' \
+        | zenity --list --width=700 --height=480 \
+            --title="Results for \"$QUERY\"" \
+            --column="Package" --column="Description" 2>/dev/null) || continue
+    [ -z "$SEL" ] && continue
+
+    ( apt-get install -y "$SEL" 2>&1 ) \
+        | zenity --progress --pulsate --auto-close --no-cancel \
+            --title="Installing $SEL" --text="Installing $SEL ..." 2>/dev/null
+
+    if command -v "$SEL" >/dev/null 2>&1 || dpkg -s "$SEL" >/dev/null 2>&1; then
+        MSG="$SEL installed. GUI apps appear in the menu automatically."
+    else
+        MSG="Could not confirm $SEL installed. Check the name and try again."
+    fi
+    zenity --question --width=380 \
+        --text="$MSG\n\nSearch for another app?" 2>/dev/null || exit 0
+done
+CNREOF
+    chmod +x ~/click-n-run.sh
+    echo -e "  [+] Created ~/click-n-run.sh (Click n run app store)"
+
+    # ---- anti-oom.sh (low-memory guard) ----
+    # Non-rooted Android cannot enable swap/zram (they need root), so instead
+    # of letting Android kill everything when RAM runs out, this frees memory
+    # by closing the single heaviest non-critical app.
+    cat > ~/anti-oom.sh << 'OOMEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+LOW_PCT="${ANTIOOM_LOW_PCT:-10}"
+CRIT_PCT="${ANTIOOM_CRIT_PCT:-5}"
+INTERVAL="${ANTIOOM_INTERVAL:-5}"
+
+notify(){ command -v notify-send >/dev/null 2>&1 && notify-send -u critical "P-noroot linux" "$1" 2>/dev/null; }
+
+# Never kill these (desktop/session critical).
+SAFE='init|login|bash|/sh|xfce4-session|xfwm4|xfsettingsd|xfce4-panel|xfdesktop|thunar|termux-x11|Xwayland|pulseaudio|dbus|anti-oom|proot-menu|start-x11'
+
+biggest_victim(){
+    local best_pid="" best_rss=0 pid rss comm
+    for d in /proc/[0-9]*; do
+        pid="${d#/proc/}"
+        [ -r "$d/statm" ] || continue
+        rss=$(awk '{print $2}' "$d/statm" 2>/dev/null)
+        [ -n "$rss" ] || continue
+        comm=$(tr -d '\0' < "$d/cmdline" 2>/dev/null); [ -n "$comm" ] || comm=$(cat "$d/comm" 2>/dev/null)
+        printf '%s' "$comm" | grep -qiE "$SAFE" && continue
+        if [ "$rss" -gt "$best_rss" ]; then best_rss="$rss"; best_pid="$pid"; fi
+    done
+    printf '%s' "$best_pid"
+}
+
+low_warned=0
+while :; do
+    total=$(awk '/^MemTotal:/{print $2}' /proc/meminfo)
+    avail=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+    if [ -n "$total" ] && [ -n "$avail" ] && [ "$total" -gt 0 ]; then
+        pct=$(( avail * 100 / total ))
+        if [ "$pct" -le "$CRIT_PCT" ]; then
+            victim=$(biggest_victim)
+            if [ -n "$victim" ]; then
+                name=$(cat "/proc/$victim/comm" 2>/dev/null)
+                notify "Low RAM (${pct}% free). Closing ${name:-an app} to recover."
+                kill -9 "$victim" 2>/dev/null
+                sleep 2
+            fi
+        elif [ "$pct" -le "$LOW_PCT" ]; then
+            [ "$low_warned" -eq 0 ] && notify "RAM low (${pct}% free). Consider closing some apps."
+            low_warned=1
+        else
+            low_warned=0
+        fi
+    fi
+    sleep "$INTERVAL"
+done
+OOMEOF
+    chmod +x ~/anti-oom.sh
+    echo -e "  [+] Created ~/anti-oom.sh (low-memory guard)"
+
+    # ---- fix-proot.sh (diagnose & repair the hidden backend) ----
+    # Prints the diagnostics we used to ask for by hand, repairs a dangling SD
+    # symlink, and reinstalls the rootfs if it went missing.
+    cat > ~/fix-proot.sh << 'FIXEOF'
+#!/data/data/com.termux/files/usr/bin/bash
+export PROOT_NO_SECCOMP=1
+PREFIX_DIR="${PREFIX:-/data/data/com.termux/files/usr}"
+RF="$PREFIX_DIR/var/lib/proot-distro/installed-rootfs"
+DISTRO="ubuntu"
+
+echo "== P-noroot linux — Proot diagnostic & repair =="
+echo "PREFIX=$PREFIX_DIR"
+echo "--- installed-rootfs ---"; ls -la "$RF" 2>&1
+echo "--- $DISTRO ---"; ls -la "$RF/$DISTRO" 2>&1 | head
+echo "--- proot-distro list ---"; proot-distro list 2>&1
+echo "------------------------------------------------"
+
+if [ -L "$RF" ]; then
+    target=$(readlink "$RF")
+    echo "[*] installed-rootfs -> $target"
+    if [ ! -d "$target" ]; then
+        echo "[!] SD target missing. Trying to recreate it..."
+        if mkdir -p "$target" 2>/dev/null; then
+            echo "[+] Recreated $target"
+        else
+            echo "[!] Could not create $target. Is the SD card inserted and is"
+            echo "    storage permission granted (run termux-setup-storage)?"
+        fi
+    fi
+fi
+
+if [ ! -d "$RF/$DISTRO/bin" ]; then
+    echo "[*] $DISTRO rootfs missing — installing (this can take a while)..."
+    proot-distro install "$DISTRO"
+fi
+
+if proot-distro login "$DISTRO" -- true >/dev/null 2>&1; then
+    echo "[+] OK: '$DISTRO' is installed and working."
+else
+    echo "[!] '$DISTRO' still not working. If it's on an SD card, the card's"
+    echo "    filesystem may not support a Linux rootfs — try internal storage."
+fi
+FIXEOF
+    chmod +x ~/fix-proot.sh
+    echo -e "  [+] Created ~/fix-proot.sh (diagnose & repair backend)"
+
     # ---- proot-menu-sync.sh (v5 — embedded) ----
     cat > ~/proot-menu-sync.sh << 'SYNCEOF'
 #!/data/data/com.termux/files/usr/bin/bash
@@ -981,6 +1127,11 @@ export DISPLAY=:0
 
 # Sync proot apps into menu (background, non-blocking)
 [ -f ~/proot-menu-sync.sh ] && bash ~/proot-menu-sync.sh > /dev/null 2>&1 &
+
+# Low-memory guard (no swap on non-rooted Android) — one instance only.
+if [ -f ~/anti-oom.sh ] && ! pgrep -f anti-oom.sh > /dev/null 2>&1; then
+    nohup bash ~/anti-oom.sh > /dev/null 2>&1 &
+fi
 
 echo "----------------------------------------------"
 echo "  [*] Open the Termux-X11 app to see desktop"
@@ -1301,8 +1452,18 @@ Type=Application
 Terminal=false
 EOF
 
+    cat > ~/Desktop/Click-n-Run.desktop << 'EOF'
+[Desktop Entry]
+Name=Click n run
+Comment=Search and install Termux apps visually
+Exec=bash /data/data/com.termux/files/home/click-n-run.sh
+Icon=system-software-install
+Type=Application
+Terminal=false
+EOF
+
     chmod +x ~/Desktop/*.desktop 2>/dev/null
-    echo -e "  [+] Shortcuts: Chromium, Files, Terminal, Install App"
+    echo -e "  [+] Shortcuts: Chromium, Files, Terminal, Install App, Click n run"
 }
 
 # ============== VNC (OPTIONAL — asked at end) ==============
@@ -1413,6 +1574,8 @@ COMPLETE
     echo "    - Chromium (native) + uBlock Origin, Git, Python 3"
     echo "    - GPU Acceleration (Turnip/Zink)"
     echo "    - Visual .deb/AppImage installer (hidden Proot backend)"
+    echo "    - Click n run: visual Termux app store"
+    echo "    - Anti-OOM low-memory guard (auto-starts with the desktop)"
     echo "    - Modern flat Windows 11-style XFCE Theme (Fluent + Dracula terminal)"
     if [ "$STORAGE_MODE" = "sd" ]; then
         echo "    - Storage: Linux container on SD card ($SD_CARD_ID)"
@@ -1439,8 +1602,14 @@ COMPLETE
     echo -e "  ${GREEN}Install a .deb / AppImage (visual):${NC}"
     echo -e "    ${WHITE}bash ~/app-installer.sh${NC}"
     echo ""
+    echo -e "  ${GREEN}Click n run (visual Termux app store):${NC}"
+    echo -e "    ${WHITE}bash ~/click-n-run.sh${NC}"
+    echo ""
     echo -e "  ${GREEN}Re-sync installed apps → XFCE menu:${NC}"
     echo -e "    ${WHITE}bash ~/proot-menu-sync.sh${NC}"
+    echo ""
+    echo -e "  ${GREEN}Diagnose / repair the Linux backend:${NC}"
+    echo -e "    ${WHITE}bash ~/fix-proot.sh${NC}"
     echo ""
     echo -e "  ${GREEN}Stop everything:${NC}"
     echo -e "    ${WHITE}bash ~/stop-linux.sh${NC}"
