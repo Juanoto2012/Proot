@@ -464,6 +464,11 @@ step_proot() {
     # ── Hardcoded to Ubuntu (DroidDesk default) ──
     PROOT_DISTRO="ubuntu"
     PROOT_LABEL="Ubuntu 22.04"
+    # The container is a hidden backend for the .deb/AppImage installer. If it
+    # fails to install we keep going anyway so the native scripts (Chromium,
+    # Click n run, launchers) are still generated; the user can repair the
+    # backend later with ~/fix-proot.sh.
+    PROOT_READY=1
     echo -e "${GREEN}[+] Proot distro: ${PROOT_LABEL} (default)${NC}"
 
     # --- Multi-distro selection (commented out for now) ---
@@ -512,34 +517,37 @@ step_proot() {
         done
 
         if [ "$installed" -ne 1 ]; then
-            echo -e "\n${RED}[X] Could not install ${PROOT_LABEL}.${NC}"
+            PROOT_READY=0
+            echo -e "\n${YELLOW}[!] Could not install ${PROOT_LABEL} right now.${NC}"
             echo -e "  ${YELLOW}Last lines of the install log (${install_log}):${NC}"
             tail -n 15 "$install_log" 2>/dev/null | sed 's/^/    /'
+            echo -e "  ${YELLOW}Setup will CONTINUE — the browser, Click n run and the${NC}"
+            echo -e "  ${YELLOW}desktop still work. The .deb/AppImage installer needs the${NC}"
+            echo -e "  ${YELLOW}backend, so fix it later with:${NC} ${WHITE}bash ~/fix-proot.sh${NC}"
             echo -e "  ${YELLOW}Common fixes on old Android (Android 10 / ginkgo):${NC}"
             echo -e "    • Check internet + free storage (rootfs needs ~1.5 GB)."
             echo -e "    • Re-run: ${WHITE}PROOT_NO_SECCOMP=1 proot-distro install ${PROOT_DISTRO}${NC}"
-            echo -e "    • Then re-run this setup (it resumes without re-downloading)."
-            exit 1
         fi
     fi
 
-    echo -e "  [*] Bootstrapping ${PROOT_LABEL}..."
-    # PROOT_NO_SECCOMP=1 keeps proot working on old Android kernels whose
-    # seccomp filters break syscall emulation.
-    PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c "
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -y -q > /dev/null 2>&1
-        apt-get install -y -q --no-install-recommends \
-            mesa-utils vulkan-tools \
-            libgl1-mesa-glx libvulkan1 libgles2 \
-            xfce4 xfce4-terminal dbus-x11 \
-            sudo curl wget git htop nano > /dev/null 2>&1
-    " 2>/dev/null || true
-    echo -e "  [+] ${PROOT_LABEL} ready."
+    if [ "$PROOT_READY" = "1" ]; then
+        echo -e "  [*] Bootstrapping ${PROOT_LABEL}..."
+        # PROOT_NO_SECCOMP=1 keeps proot working on old Android kernels whose
+        # seccomp filters break syscall emulation.
+        PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c "
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -y -q > /dev/null 2>&1
+            apt-get install -y -q --no-install-recommends \
+                mesa-utils vulkan-tools \
+                libgl1-mesa-glx libvulkan1 libgles2 \
+                xfce4 xfce4-terminal dbus-x11 \
+                sudo curl wget git htop nano > /dev/null 2>&1
+        " 2>/dev/null || true
+        echo -e "  [+] ${PROOT_LABEL} ready."
 
-    # ---- Create named user with working sudo ----
-    echo -e "  [*] Creating proot user: ${SETUP_USERNAME} (with sudo)..."
-    PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c "
+        # ---- Create named user with working sudo ----
+        echo -e "  [*] Creating proot user: ${SETUP_USERNAME} (with sudo)..."
+        PROOT_NO_SECCOMP=1 proot-distro login "$PROOT_DISTRO" -- bash -c "
         # Create user if not exists
         id '$SETUP_USERNAME' > /dev/null 2>&1 || \
             useradd -m -s /bin/bash '$SETUP_USERNAME'
@@ -565,7 +573,8 @@ step_proot() {
         echo 'alias ll="ls -la"' >> /home/'$SETUP_USERNAME'/.bashrc
         echo 'alias update="sudo apt update && sudo apt upgrade -y"' >> /home/'$SETUP_USERNAME'/.bashrc
     " 2>/dev/null || true
-    echo -e "  [+] Proot user '${SETUP_USERNAME}' created with passwordless sudo"
+        echo -e "  [+] Proot user '${SETUP_USERNAME}' created with passwordless sudo"
+    fi
 
     # The browser is native Chromium in Termux (installed in step_apps); the
     # Proot container is now only a hidden glibc backend used by the visual
@@ -1184,7 +1193,22 @@ step_theme_xfce() {
 
     mkdir -p ~/.config/xfce4/xfconf/xfce-perchannel-xml \
              ~/.config/autostart \
+             ~/.config/gtk-3.0 \
              ~/.local/share/themes
+
+    # ---- GTK defaults so Fluent applies to every GTK app, not just XFCE ----
+    cat > ~/.config/gtk-3.0/settings.ini << 'GTK3EOF'
+[Settings]
+gtk-theme-name=Fluent-Dark
+gtk-icon-theme-name=Fluent-dark
+gtk-font-name=Sans 11
+gtk-application-prefer-dark-theme=true
+GTK3EOF
+    cat > ~/.gtkrc-2.0 << 'GTK2EOF'
+gtk-theme-name="Fluent-Dark"
+gtk-icon-theme-name="Fluent-dark"
+gtk-font-name="Sans 11"
+GTK2EOF
 
     # ---- GTK + Font settings (xsettings.xml) ----
     cat > ~/.config/xfce4/xfconf/xfce-perchannel-xml/xsettings.xml << 'XSEOF'
