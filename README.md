@@ -14,7 +14,7 @@ Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your en
 
 Everything below has been tested and confirmed working:
 
-- **Chromium** -- Native Termux Chromium browser with **uBlock Origin** preinstalled (runs without proot).
+- **Firefox** -- Native Termux Chromium browser with **uBlock Origin** preinstalled (runs without proot).
 - **LibreOffice** -- Word processing, spreadsheets, presentations. Fully functional.
 - **VS Code** -- Full version (installed inside the container with `apt`). Python, PIP, extensions, everything.
 - **Claude Code** -- AI coding agent running directly in terminal.
