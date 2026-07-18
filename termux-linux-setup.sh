@@ -416,15 +416,16 @@ step_apps() {
     install_pkg "wget" "Wget"
     install_pkg "curl" "cURL"
     install_pkg "imagemagick" "ImageMagick (wallpaper)"
-    install_pkg "nodejs" "Node.js"
     install_pkg "openssh" "OpenSSH"
     install_pkg "neofetch" "Neofetch"
     install_pkg "htop" "htop"
+    install_pkg "xdotool"
 
-    # Native Chromium (runs in Termux, no proot) + zenity for the visual
+    # Native Firefox (runs in Termux, no proot) + zenity for the visual
     # .deb/AppImage installer.
-    install_pkg "chromium" "Chromium browser (native)"
+    install_pkg "firefox" "Firefox"
     install_pkg "zenity" "Zenity (installer dialogs)"
+    install_pkg "xfce4-goodies" "XFCE4 Goodies (Basic apps)"
     install_pkg "libnotify" "libnotify (desktop notifications)"
 
     # Force-install uBlock Origin (Lite, MV3 — required by modern Chromium)
