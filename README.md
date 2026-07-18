@@ -2,7 +2,7 @@
 
 A light, usable, no-root Linux desktop for any Android phone. Not a terminal. Not an emulator. A complete desktop environment with direct kernel access -- native Chromium browser, Blender, Metasploit, local AI, all of it.
 
-Designed to stay lightweight: it preinstalls a **native Chromium** browser with **uBlock Origin** (no proot needed to browse), skips heavy defaults like VS Code, includes a **visual `.deb` / AppImage installer** (a hidden Proot glibc backend runs the apps and adds them to your menu), and lets you keep the Linux backend on an **SD card** if internal storage is tight. By default everything lives inside Termux's private folder.
+Designed to stay lightweight: it preinstalls Firefox (no proot needed to browse), skips heavy defaults like VS Code, includes a **visual `.deb` / AppImage installer** (a hidden Proot glibc backend runs the apps and adds them to your menu), and lets you keep the Linux backend on an **SD card** if internal storage is tight. By default everything lives inside Termux's private folder.
 
 Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your entire setup comes with you.
 
@@ -14,7 +14,7 @@ Connect your phone to a monitor and it becomes a Linux PC. Unplug it and your en
 
 Everything below has been tested and confirmed working:
 
-- **Firefox** -- Native Termux Chromium browser with **uBlock Origin** preinstalled (runs without proot).
+- **Firefox** -- Native Termux browser with **uBlock Origin** (runs without proot).
 - **LibreOffice** -- Word processing, spreadsheets, presentations. Fully functional.
 - **VS Code** -- Full version (installed inside the container with `apt`). Python, PIP, extensions, everything.
 - **Claude Code** -- AI coding agent running directly in terminal.
